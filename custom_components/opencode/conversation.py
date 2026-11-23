@@ -54,6 +54,10 @@ class OpenCodeConversationEntity(
     def __init__(self, entry: OpenCodeConfigEntry, subentry: ConfigSubentry) -> None:
         """Initialize the agent."""
         super().__init__(entry, subentry)
+        if subentry.data.get(CONF_LLM_HASS_API):
+            self._attr_supported_features = (
+                conversation.ConversationEntityFeature.CONTROL
+            )
         # Assist conversation ID to OpenCode session ID
         self._sessions: dict[str, str] = {}
         # The extra system prompt each session was last given

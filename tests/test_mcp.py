@@ -1,5 +1,8 @@
 """Tests for serving Home Assistant's tools to OpenCode sessions."""
 
+import dataclasses
+from unittest.mock import MagicMock
+
 from homeassistant.components import conversation
 from homeassistant.const import (
     CONF_LLM_HASS_API,
@@ -21,7 +24,11 @@ from custom_components.opencode.const import (
     DOMAIN,
     TOOLS_PROMPT,
 )
-from custom_components.opencode.mcp import NOT_OUR_SESSION, SESSION_ID_META
+from custom_components.opencode.mcp import (
+    NOT_OUR_SESSION,
+    SESSION_ID_META,
+    HomeAssistantTools,
+)
 
 from .conftest import URL, FakeOpenCode, text_turn
 
@@ -131,12 +138,31 @@ async def test_lists_tools(hass: HomeAssistant, mock_opencode: FakeOpenCode) -> 
     assert reply["error"]["code"] == -32601
 
 
+async def test_lists_admin_tools(hass: HomeAssistant) -> None:
+    """Test an API only administrators can use still lists its tools."""
+    if "requires_admin" not in {field.name for field in dataclasses.fields(llm.API)}:
+        pytest.skip("APIs only need an administrator from Home Assistant 2026.11")
+    api = LightAPI(hass=hass, id="admin_lights", name="Lights", requires_admin=True)
+    api.tool = LightTool()
+    llm.async_register_api(hass, api)
+    tools = HomeAssistantTools(hass, MagicMock(), None, ["admin_lights"], {})
+
+    reply = await tools.async_handle("tools/list", {})
+
+    assert [tool["name"] for tool in reply["result"]["tools"]] == ["LightOn"]
+
+
 @pytest.mark.usefixtures("init_integration")
 async def test_tool_calls(
     hass: HomeAssistant, mock_opencode: FakeOpenCode, light_tool: LightTool
 ) -> None:
     """Test only the agent's own sessions can call the tools."""
     [socket] = mock_opencode.sockets
+    # So Assist doesn't say the agent can't control the home
+    assert (
+        hass.states.get(AGENT_ID).attributes["supported_features"]
+        == conversation.ConversationEntityFeature.CONTROL
+    )
     mock_opencode.turns = [text_turn("The kitchen light is on.")]
 
     result = await conversation.async_converse(

@@ -68,7 +68,7 @@ Add a second server, such as a more powerful machine, as another entry, and use 
 
 ### Home Assistant's tools
 
-An agent with **Control Home Assistant** set can see and control your home with the same tools Home Assistant's own AI integrations use, limited to the entities you expose to Assist. New agents have Assist picked; an agent added before needs **Reconfigure** to turn it on. Home Assistant hands the tools to OpenCode over a connection of its own, so there's nothing to set up on the server. It needs OpenCode 2.3.2 or later.
+An agent with **Control Home Assistant** set can see and control your home with the same tools Home Assistant's own AI integrations use, limited to the entities you expose to Assist. New agents have **Device control** (the Assist API) picked; an agent added before needs **Reconfigure** to turn it on. The **Home Assistant** API only works for administrators, so voice satellites can't use it. Home Assistant hands the tools to OpenCode over a connection of its own, so there's nothing to set up on the server. It needs OpenCode 2.3.2 or later.
 
 - The agent keeps its own tools and MCP servers alongside them, such as one with your home's history, and is told to use Home Assistant's first. With OpenCode's Code Mode, they're under `tools.homeassistant`.
 - Tool calls act with the same context as the conversation, so "turn on the lights" from a satellite means the lights in its area.
@@ -101,5 +101,5 @@ An AI task lets automations and scripts hand OpenCode work with the **AI Task: G
 | Variant                | The model's effort variant, such as `high`. Empty uses the default                                                                   |
 | Directory              | The folder on the server the session works in. Empty uses the server's default, usually the home folder of the user OpenCode runs as |
 | Instructions           | Sent at the start of each conversation. A template, like other Assist agents                                                         |
-| Control Home Assistant | Home Assistant's tools the agent can use, such as Assist. Agents only                                                                |
+| Control Home Assistant | Home Assistant's tools the agent can use, such as Device control. Agents only                                                        |
 | Timeout                | How long to wait for an answer. On a voice satellite, a slower one is announced when it's done                                       |

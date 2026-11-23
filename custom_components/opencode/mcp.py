@@ -120,22 +120,29 @@ class HomeAssistantTools:
 
     async def _async_list_tools(self) -> list[dict[str, Any]]:
         """List the tools of every API an agent in this directory uses."""
+        known = {api.id: api for api in llm.async_get_apis(self._hass)}
+        apis = [known[api_id] for api_id in self._api_ids if api_id in known]
+        if not apis:
+            return []
+        api = apis[0] if len(apis) == 1 else llm.MergedAPI(apis)
         try:
-            api = await llm.async_get_api(
-                self._hass,
-                self._api_ids,
+            # Not async_get_api: listing has no user to authorise, and each
+            # call is authorised by the turn that set its session's instance
+            instance = await api.async_get_api_instance(
                 llm.LLMContext(
                     platform=DOMAIN,
                     context=Context(),
                     language=self._hass.config.language,
                     assistant=conversation.DOMAIN,
                     device_id=None,
-                ),
+                )
             )
         except HomeAssistantError as err:
             LOGGER.warning("Couldn't list Home Assistant's tools: %s", err)
             return []
-        return [_format_tool(tool, api.custom_serializer) for tool in api.tools]
+        return [
+            _format_tool(tool, instance.custom_serializer) for tool in instance.tools
+        ]
 
     async def _async_call_tool(self, params: dict[str, Any]) -> dict[str, Any]:
         """Call a tool for the session that asked, if it's one of ours."""
