@@ -5,7 +5,10 @@ A custom Home Assistant integration that lets your [OpenCode](https://opencode.a
 > [!WARNING]
 > This integration is experimental, breaking changes may occur. No support will be given
 
-It needs an OpenCode 2 server Home Assistant can reach, such as the OpenCode app or OpenCode on another machine. On another machine, have OpenCode listen on the network with `opencode service set hostname 0.0.0.0`, then `opencode service restart`, and allow port 49374 through its firewall.
+It needs an OpenCode 2 server Home Assistant can reach, such as the [OpenCode app](https://github.com/timmo001/app-opencode) or OpenCode on another machine. On another machine, have OpenCode listen on the network with `opencode service set hostname 0.0.0.0`, then `opencode service restart`, and allow port 49374 through its firewall.
+
+> [!TIP]
+> On Home Assistant OS, the [OpenCode app](https://github.com/timmo001/app-opencode) runs OpenCode on the same machine, opened from the sidebar. This integration finds the app by itself, and the app pairs Home Assistant for you.
 
 This is a community project. It isn't made or endorsed by Anomaly, the makers of OpenCode, or by Home Assistant.
 
@@ -48,7 +51,7 @@ Since this integration is not yet in the default HACS store, you need to add it 
 With the [OpenCode app](https://github.com/timmo001/app-opencode) on Home Assistant OS, Home Assistant finds it by itself: **Settings** > **Devices & services** shows OpenCode as discovered. Add it, and the app pairs Home Assistant for you, so skip to step 3. For any other OpenCode server:
 
 1. Use the button above, or go to **Settings** > **Devices & services** > **Add integration** and pick **OpenCode**
-2. On the server, run `opencode pair`, or press **Pair a device** in the OpenCode app's sidebar, and paste one of its links, such as `http://192.168.1.10:49374/auth/connect/…`. Links work once and expire in 5 minutes. Home Assistant keeps the token the link gives it and renews it every week, so there's no password to enter
+2. On the server, run `opencode pair`, or select **Show a pairing code** on the **Connect** tab of the [OpenCode app](https://github.com/timmo001/app-opencode)'s sidebar page, and paste one of its links, such as `http://192.168.1.10:49374/auth/connect/…`. Links work once and expire in 5 minutes. Home Assistant keeps the token the link gives it and renews it every week, so there's no password to enter
 3. Pick the model that answers. A small one is picked for you: the cheapest paid model on the server that can use tools, since quick answers matter more than depth for most spoken questions. Clear it to use the agent's own default
 4. A conversation agent and an AI task are added with the server's `build` agent and that model. Each is named after its model and server, such as "MAI Code 2 Flash (arch-station)" and "MAI Code 2 Flash AI task (arch-station)", so agents on different servers or models are easy to tell apart. A server you paired is named by its hostname. The app's entry keeps its own name, and its agents end in "(app)", such as "MAI Code 2 Flash (app)". Use **Reconfigure** on either to pick another agent, model or variant, and a name you haven't changed follows the new model. Use **Add conversation agent** and **Add AI task** for more on the same server, with no need to pair again
 5. Go to **Settings** > **Voice assistants** and pick the agent as an assistant's conversation agent
