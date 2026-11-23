@@ -325,7 +325,19 @@ async def test_hassio_flow(
     mock_opencode.async_redeem.assert_not_awaited()
     subentry = next(iter(result["result"].subentries.values()))
     assert subentry.data[CONF_MODEL] == SMALL_MODEL
-    assert subentry.title == "MAI Code 2 Flash (OpenCode)"
+    assert subentry.title == "MAI Code 2 Flash (app)"
+    await hass.async_block_till_done()
+
+    # Agents added later say they're on the app too
+    result = await hass.config_entries.subentries.async_init(
+        (result["result"].entry_id, "ai_task_data"),
+        context={"source": SOURCE_USER},
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {CONF_AGENT: "build", CONF_MODEL: "github-copilot/gemini-4-neon"},
+    )
+    assert result["title"] == "Gemini 4 Neon AI task (app)"
 
 
 async def test_hassio_flow_cannot_connect(

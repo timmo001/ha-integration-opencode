@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any, override
 
 from homeassistant.config_entries import (
+    SOURCE_HASSIO,
     ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
@@ -175,6 +176,14 @@ def _find_model(
     )
 
 
+APP_SERVER_NAME = "app"
+
+
+def server_name(entry: OpenCodeConfigEntry) -> str:
+    """Return what agents call their server: the app, or the entry's name."""
+    return APP_SERVER_NAME if entry.source == SOURCE_HASSIO else entry.title
+
+
 def default_title(
     server: str,
     data: Mapping[str, Any],
@@ -202,6 +211,8 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
     _discovery: HassioServiceInfo
     _data: dict[str, Any]
     _title: str
+    # What the server is called in its agents' names
+    _server: str
     _models: list[dict[str, Any]]
 
     def _async_update_and_finish(
@@ -239,7 +250,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
         except Exception:
             LOGGER.exception("Unexpected exception")
             return {}, {"base": "unknown"}
-        self._title = info.get("hostname") or URL(url).host or url
+        self._title = self._server = info.get("hostname") or URL(url).host or url
         return {
             CONF_URL: url,
             CONF_TOKEN: token,
@@ -277,7 +288,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                         subentry_type="conversation",
                         data=conversation,
                         title=default_title(
-                            self._title, conversation, self._models, ai_task=False
+                            self._server, conversation, self._models, ai_task=False
                         ),
                         unique_id=None,
                     ),
@@ -285,7 +296,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                         subentry_type="ai_task_data",
                         data=ai_task,
                         title=default_title(
-                            self._title, ai_task, self._models, ai_task=True
+                            self._server, ai_task, self._models, ai_task=True
                         ),
                         unique_id=None,
                     ),
@@ -366,6 +377,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
                 }
                 self._title = self._discovery.name
+                self._server = APP_SERVER_NAME
                 return await self.async_step_model()
 
         return self.async_show_form(
@@ -465,19 +477,20 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
                 if variant not in _variants([model]):
                     errors[CONF_VARIANT] = "unsupported_variant"
             if not errors:
+                server = server_name(entry)
                 if is_new:
                     name = user_input.pop(CONF_NAME, None) or default_title(
-                        entry.title, user_input, models, ai_task=is_ai_task
+                        server, user_input, models, ai_task=is_ai_task
                     )
                     return self.async_create_entry(title=name, data=user_input)
                 subentry = self._get_reconfigure_subentry()
                 changes: dict[str, Any] = {"data": user_input}
                 # A name nobody changed follows the model
                 if subentry.title == default_title(
-                    entry.title, subentry.data, models, ai_task=is_ai_task
+                    server, subentry.data, models, ai_task=is_ai_task
                 ):
                     changes["title"] = default_title(
-                        entry.title, user_input, models, ai_task=is_ai_task
+                        server, user_input, models, ai_task=is_ai_task
                     )
                 return self.async_update_and_abort(entry, subentry, **changes)
 
