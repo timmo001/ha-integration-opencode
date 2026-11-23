@@ -1,0 +1,32 @@
+// Pre-push checks: the shared base from timmo001/workflows, with Ruff run
+// through this repository's uv environment.
+amends "package://github.com/timmo001/workflows/releases/download/20261114.0/hk-base@20261114.0.0#/base.pkl"
+
+exclude = List(".agents/skills/**", ".mise/**", "uv.lock")
+
+hooks {
+  ["pre-push"] {
+    steps {
+      ["ruff"] {
+        glob = List("**/*.py")
+        check = "uv run --no-sync ruff check {{files}}"
+      }
+      ["ruff-format"] {
+        glob = List("**/*.py")
+        check = "uv run --no-sync ruff format --check {{files}}"
+      }
+    }
+  }
+  ["check"] {
+    steps {
+      ["ruff"] {
+        glob = List("**/*.py")
+        check = "uv run --no-sync ruff check {{files}}"
+      }
+      ["ruff-format"] {
+        glob = List("**/*.py")
+        check = "uv run --no-sync ruff format --check {{files}}"
+      }
+    }
+  }
+}

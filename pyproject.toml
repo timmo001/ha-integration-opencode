@@ -1,0 +1,87 @@
+[project]
+name = "ha-opencode"
+version = "0.1.0"
+description = "Use OpenCode agents as Home Assistant conversation agents"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.14.2"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  # The conversation integration's requirements in that Home Assistant version
+  "gazetteer-matcher==1.1.0",
+  "hassil==3.12.1",
+  "home-assistant-intents==2026.10.6",
+  "pytest-homeassistant-custom-component==0.13.375",
+  "ruff==0.17.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ASYNC",
+  "B",
+  "C4",
+  "D",
+  "E",
+  "F",
+  "FLY",
+  "G",
+  "I",
+  "LOG",
+  "PERF",
+  "PIE",
+  "PL",
+  "PT",
+  "PYI",
+  "RET",
+  "RSE",
+  "RUF",
+  "S",
+  "SIM",
+  "SLF",
+  "T20",
+  "TC",
+  "TRY",
+  "UP",
+  "W",
+]
+ignore = [
+  "ASYNC109", # Async function definition with a `timeout` parameter
+  "D202", # No blank lines allowed after function docstring
+  "D203", # 1 blank line required before class docstring
+  "D213", # Multi-line docstring summary should start at the second line
+  "E501", # Formatting handles line length
+  "PLR0911", # Too many return statements
+  "PLR0912", # Too many branches
+  "PLR0913", # Too many arguments
+  "PLR0915", # Too many statements
+  "PLR2004", # Magic value used in comparison
+  "SIM102", # Use a single if statement instead of nested if statements
+  # Moving imports into type-checking blocks can break patching in tests
+  "TC001",
+  "TC002",
+  "TC003",
+  "TRY003", # Long messages outside the exception class
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "SLF001"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components"]
+combine-as-imports = true

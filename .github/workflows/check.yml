@@ -1,0 +1,29 @@
+---
+name: Check
+
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: timmo001/workflows/.github/workflows/run-mise-task.yml@db6f3692a31de24d2bee17e505dfd2bf3fd5a076 # 20261116.1
+    with:
+      task: lint
+      install-args: python uv
+  test:
+    uses: timmo001/workflows/.github/workflows/run-mise-task.yml@db6f3692a31de24d2bee17e505dfd2bf3fd5a076 # 20261116.1
+    with:
+      task: test
+      install-args: python uv
