@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_TOKEN, CONF_URL, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -32,10 +32,18 @@ class OpenCodeData:
     version: str
     # Compared by the update listener, so a renewed token doesn't reload
     data: dict[str, Any]
-    subentries: dict[str, ConfigSubentry]
+    subentries: dict[str, tuple[str, dict[str, Any]]]
 
 
 type OpenCodeConfigEntry = ConfigEntry[OpenCodeData]
+
+
+def _subentries(entry: OpenCodeConfigEntry) -> dict[str, tuple[str, dict[str, Any]]]:
+    """Copy each subentry's title and data, since Core updates them in place."""
+    return {
+        subentry_id: (subentry.title, dict(subentry.data))
+        for subentry_id, subentry in entry.subentries.items()
+    }
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OpenCodeConfigEntry) -> bool:
@@ -60,7 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenCodeConfigEntry) -> 
         client=client,
         version=info["version"],
         data=dict(entry.data),
-        subentries=dict(entry.subentries),
+        subentries=_subentries(entry),
     )
     await async_renew_token(hass, entry)
 
@@ -84,7 +92,7 @@ async def async_update_options(hass: HomeAssistant, entry: OpenCodeConfigEntry) 
     """Reload the entry when it changes, but not when its token renews."""
     if (
         dict(entry.data) != entry.runtime_data.data
-        or dict(entry.subentries) != entry.runtime_data.subentries
+        or _subentries(entry) != entry.runtime_data.subentries
     ):
         await hass.config_entries.async_reload(entry.entry_id)
 

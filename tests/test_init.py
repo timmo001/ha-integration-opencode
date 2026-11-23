@@ -6,6 +6,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.const import CONF_TOKEN
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -14,7 +15,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.opencode.api import OpenCodeAuthError, OpenCodeConnectionError
-from custom_components.opencode.const import CONF_RENEWED_AT
+from custom_components.opencode.const import CONF_RENEWED_AT, DOMAIN
 
 from .conftest import FakeOpenCode
 
@@ -102,3 +103,22 @@ async def test_failed_renewal_tries_again(
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert init_integration.data[CONF_TOKEN] == "renewed-token"
+
+
+async def test_renamed_subentry_renames_device(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Test a subentry Core changes in place still reloads, so its device follows."""
+    subentry = next(iter(init_integration.subentries.values()))
+    hass.config_entries.async_update_subentry(
+        init_integration, subentry, title="MAI Code 2 Flash (opencode-server)"
+    )
+    await hass.async_block_till_done()
+
+    device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, subentry.subentry_id), init_integration.entry_id
+    )
+    assert device is not None
+    assert device.name == "MAI Code 2 Flash (opencode-server)"
