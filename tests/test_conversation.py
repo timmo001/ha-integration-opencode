@@ -64,6 +64,30 @@ async def test_answer_and_follow_up(
 
 
 @pytest.mark.usefixtures("init_integration")
+async def test_extra_system_prompt(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a caller's extra prompt is sent once, even partway through."""
+    mock_opencode.turns = [text_turn("Hi."), text_turn("Yes."), text_turn("No.")]
+
+    result = await _ask(hass, "Hello")
+    for text in ("Is the door locked?", "Is the window open?"):
+        await conversation.async_converse(
+            hass,
+            text,
+            result.conversation_id,
+            Context(),
+            agent_id=AGENT_ID,
+            extra_system_prompt="The user just got home.",
+        )
+
+    assert [prompt for _, prompt in mock_opencode.prompts[1:]] == [
+        "The user just got home.\n\nIs the door locked?",
+        "Is the window open?",
+    ]
+
+
+@pytest.mark.usefixtures("init_integration")
 async def test_gone_session_starts_another(
     hass: HomeAssistant, mock_opencode: FakeOpenCode
 ) -> None:

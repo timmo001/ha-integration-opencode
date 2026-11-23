@@ -71,6 +71,8 @@ class OpenCodeConversationEntity(
         self._client: OpenCodeClient = entry.runtime_data.client
         # Assist conversation ID to OpenCode session ID
         self._sessions: dict[str, str] = {}
+        # The extra system prompt each session was last given
+        self._extra_prompts: dict[str, str | None] = {}
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._attr_unique_id = subentry.subentry_id
         self._attr_device_info = dr.DeviceInfo(
@@ -130,7 +132,12 @@ class OpenCodeConversationEntity(
 
         async with self._locks[conversation_id]:
             instructions = chat_log.content[0].content
-            stream = self._async_stream(conversation_id, instructions, user_input.text)
+            stream = self._async_stream(
+                conversation_id,
+                instructions,
+                chat_log.extra_system_prompt,
+                user_input.text,
+            )
             try:
                 async with asyncio.timeout(
                     self.subentry.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
@@ -159,11 +166,17 @@ class OpenCodeConversationEntity(
         return conversation.async_get_result_from_chat_log(user_input, chat_log)
 
     async def _async_stream(
-        self, conversation_id: str, instructions: str, text: str
+        self,
+        conversation_id: str,
+        instructions: str,
+        extra_system_prompt: str | None,
+        text: str,
     ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
         """Prompt the session and turn its events into chat log deltas."""
         async with self._client.async_events(list(EVENT_TYPES)) as events:
-            session_id = await self._async_prompt(conversation_id, instructions, text)
+            session_id = await self._async_prompt(
+                conversation_id, instructions, extra_system_prompt, text
+            )
             message_id: str | None = None
             streamed = ""
             finished = False
@@ -214,20 +227,32 @@ class OpenCodeConversationEntity(
             yield {"content": answer}
 
     async def _async_prompt(
-        self, conversation_id: str, instructions: str, text: str
+        self,
+        conversation_id: str,
+        instructions: str,
+        extra_system_prompt: str | None,
+        text: str,
     ) -> str:
         """Send the prompt, starting a session when there isn't a usable one."""
         if session_id := self._sessions.get(conversation_id):
+            prompt = text
+            if extra_system_prompt and (
+                extra_system_prompt != self._extra_prompts.get(conversation_id)
+            ):
+                # A caller, such as an automation, added a prompt mid-conversation
+                prompt = f"{extra_system_prompt}\n\n{text}"
             try:
-                await self._client.async_prompt(session_id, text)
+                await self._client.async_prompt(session_id, prompt)
             except OpenCodeNotFoundError, OpenCodeConflictError:
                 LOGGER.debug("Session %s is gone, starting another", session_id)
             else:
+                self._extra_prompts[conversation_id] = extra_system_prompt
                 return session_id
 
         session_id = await self._async_create_session()
         self._sessions[conversation_id] = session_id
         await self._client.async_prompt(session_id, f"{instructions}\n\n{text}")
+        self._extra_prompts[conversation_id] = extra_system_prompt
         return session_id
 
     async def _async_create_session(self) -> str:
@@ -251,6 +276,7 @@ class OpenCodeConversationEntity(
     def _async_forget(self, conversation_id: str) -> None:
         """Archive the session when Assist forgets the conversation."""
         self._locks.pop(conversation_id, None)
+        self._extra_prompts.pop(conversation_id, None)
         if session_id := self._sessions.pop(conversation_id, None):
             self._async_archive(session_id)
 
