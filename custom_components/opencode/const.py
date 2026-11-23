@@ -19,6 +19,11 @@ TOKEN_CHECK_INTERVAL = timedelta(hours=12)
 
 EVENT_TYPES = (
     "session.text.delta",
+    "session.reasoning.delta",
+    "session.tool.input.started",
+    "session.tool.called",
+    "session.tool.success",
+    "session.tool.failed",
     "session.execution.succeeded",
     "session.execution.failed",
     "session.execution.interrupted",

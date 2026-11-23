@@ -15,7 +15,7 @@ from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import CONF_MODEL, CONF_TIMEOUT
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, llm
 from homeassistant.helpers.entity import Entity
 
 from . import OpenCodeConfigEntry
@@ -161,19 +161,56 @@ class OpenCodeBaseEntity(Entity):
         """Prompt a session and turn its events into chat log deltas."""
         async with self._client.async_events(list(EVENT_TYPES)) as events:
             session_id = await send()
+            # The chat log message being streamed, cleared after a tool result
             message_id: str | None = None
+            # The message whose text was streamed, and that text
+            text_id: str | None = None
             streamed = ""
+            tool_names: dict[str, str] = {}
             finished = False
             try:
                 async for event in _async_session_events(events, session_id):
                     match event.type:
-                        case "session.text.delta":
+                        case (
+                            "session.text.delta"
+                            | "session.reasoning.delta"
+                            | "session.tool.called"
+                        ):
                             if event.data["assistantMessageID"] != message_id:
                                 message_id = event.data["assistantMessageID"]
-                                streamed = ""
                                 yield {"role": "assistant"}
-                            streamed += event.data["delta"]
-                            yield {"content": event.data["delta"]}
+                            if event.type == "session.text.delta":
+                                if text_id != message_id:
+                                    text_id = message_id
+                                    streamed = ""
+                                streamed += event.data["delta"]
+                                yield {"content": event.data["delta"]}
+                            elif event.type == "session.reasoning.delta":
+                                yield {"thinking_content": event.data["delta"]}
+                            else:
+                                yield {
+                                    "tool_calls": [
+                                        llm.ToolInput(
+                                            tool_name=tool_names.get(
+                                                event.data["id"], "tool"
+                                            ),
+                                            tool_args=event.data["input"],
+                                            id=event.data["id"],
+                                            external=True,
+                                        )
+                                    ]
+                                }
+                        case "session.tool.input.started":
+                            tool_names[event.data["id"]] = event.data["name"]
+                        case "session.tool.success" | "session.tool.failed":
+                            yield {
+                                "role": "tool_result",
+                                "tool_call_id": event.data["id"],
+                                "tool_name": tool_names.get(event.data["id"], "tool"),
+                                "result": _tool_result(event.data),
+                            }
+                            # Whatever follows needs a new assistant message
+                            message_id = None
                         case "permission.asked":
                             await self._client.async_reject_permission(
                                 session_id, event.data["id"], PERMISSION_REJECT_MESSAGE
@@ -197,12 +234,16 @@ class OpenCodeBaseEntity(Entity):
             if not finished:
                 # The stream dropped mid-turn: wait for the turn to end instead
                 await self._client.async_wait(session_id, self._timeout)
-            elif message_id is not None:
+            elif text_id is not None:
                 return
 
         # Nothing streamed, or the stream dropped: read the last answer
         answer = await self._client.async_get_last_text(session_id)
-        if message_id is not None and answer.startswith(streamed):
+        if (
+            text_id is not None
+            and text_id == message_id
+            and answer.startswith(streamed)
+        ):
             yield {"content": answer.removeprefix(streamed)}
         else:
             yield {"role": "assistant"}
@@ -216,11 +257,14 @@ class OpenCodeBaseEntity(Entity):
         """Clean a streamed answer for a speaker."""
         cleaner = SpeechCleaner()
         async for delta in stream:
-            if "content" not in delta:
+            if "role" in delta:
                 # Another message: only the last one is the answer
                 if rest := cleaner.flush():
                     yield {"content": rest}
                 cleaner = SpeechCleaner()
+                yield delta
+            elif "content" not in delta:
+                # Thinking and tool calls are shown, not spoken
                 yield delta
             elif text := cleaner.feed(delta["content"]):
                 yield {"content": text}
@@ -273,6 +317,18 @@ async def _async_session_events(
                 yield event
         elif event.data.get("sessionID") == session_id:
             yield event
+
+
+def _tool_result(data: dict[str, Any]) -> llm.ToolResult:
+    """Turn a finished OpenCode tool call into a chat log tool result."""
+    text = "\n".join(
+        part["text"] for part in data.get("content") or [] if part["type"] == "text"
+    )
+    if error := data.get("error"):
+        return llm.ToolResult(
+            data={"error": error["type"], "error_text": error["message"]}, error=True
+        )
+    return llm.ToolResult(data={"content": text})
 
 
 async def _async_ignore_errors(coro: Coroutine[Any, Any, None]) -> None:

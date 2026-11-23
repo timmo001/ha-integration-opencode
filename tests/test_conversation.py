@@ -6,7 +6,7 @@ from unittest.mock import patch
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components import conversation, persistent_notification
 from homeassistant.core import Context, HomeAssistant
-from homeassistant.helpers import intent
+from homeassistant.helpers import chat_session, intent, llm
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -80,6 +80,68 @@ async def test_answer_and_follow_up(
     assert result.response.speech["plain"]["speech"] == "About 2 million."
     assert mock_opencode.prompts[1] == (session_id, "How many people live there?")
     assert mock_opencode.sessions == [session_id]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_thinking_and_tool_calls(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test thinking and the tools OpenCode ran show in the chat log."""
+    mock_opencode.turns = [
+        [
+            OpenCodeEvent(
+                "session.reasoning.delta",
+                {"assistantMessageID": "msg_1", "ordinal": 0, "delta": "Look it up."},
+            ),
+            OpenCodeEvent(
+                "session.tool.input.started",
+                {"assistantMessageID": "msg_1", "id": "call_1", "name": "search"},
+            ),
+            OpenCodeEvent(
+                "session.tool.called",
+                {
+                    "assistantMessageID": "msg_1",
+                    "id": "call_1",
+                    "input": {"query": "living room"},
+                    "executed": True,
+                },
+            ),
+            OpenCodeEvent(
+                "session.tool.success",
+                {
+                    "assistantMessageID": "msg_1",
+                    "id": "call_1",
+                    "content": [{"type": "text", "text": "21.5 °C"}],
+                    "executed": True,
+                },
+            ),
+            *text_turn("It's 21.5 °C.", message_id="msg_2"),
+        ]
+    ]
+
+    result = await _ask(hass, "How warm is the living room?")
+
+    assert result.response.speech["plain"]["speech"] == "It's 21.5 °C."
+    with (
+        chat_session.async_get_chat_session(hass, result.conversation_id) as session,
+        conversation.async_get_chat_log(hass, session) as chat_log,
+    ):
+        thinking, tool_result, answer = chat_log.content[-3:]
+    assert isinstance(thinking, conversation.AssistantContent)
+    assert thinking.thinking_content == "Look it up."
+    assert thinking.tool_calls == [
+        llm.ToolInput(
+            tool_name="search",
+            tool_args={"query": "living room"},
+            id="call_1",
+            external=True,
+        )
+    ]
+    assert isinstance(tool_result, conversation.ToolResultContent)
+    assert tool_result.tool_call_id == "call_1"
+    assert tool_result.result == llm.ToolResult(data={"content": "21.5 °C"})
+    assert isinstance(answer, conversation.AssistantContent)
+    assert answer.content == "It's 21.5 °C."
 
 
 @pytest.mark.usefixtures("init_integration")
