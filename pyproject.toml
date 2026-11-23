@@ -1,5 +1,5 @@
 [project]
-name = "ha-opencode"
+name = "ha-integration-opencode"
 version = "0.2.0"
 description = "Use OpenCode agents as Home Assistant conversation agents"
 readme = "README.md"
