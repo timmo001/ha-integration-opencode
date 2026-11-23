@@ -31,6 +31,9 @@ EVENT_TYPES = (
     "form.created",
 )
 
+# What a session asks that nobody can answer from Assist
+REQUEST_EVENT_TYPES = ("permission.asked", "form.created")
+
 DEFAULT_AGENT = "build"
 DEFAULT_TIMEOUT = 60
 DEFAULT_AI_TASK_TIMEOUT = 600

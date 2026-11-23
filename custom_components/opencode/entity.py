@@ -39,6 +39,7 @@ from .const import (
     LOGGER,
     MCP_SERVER_NAME,
     PERMISSION_REJECT_MESSAGE,
+    REQUEST_EVENT_TYPES,
 )
 from .speech import SpeechCleaner, full_answer, to_speech
 
@@ -228,14 +229,8 @@ class OpenCodeBaseEntity(Entity):
                             }
                             # Whatever follows needs a new assistant message
                             message_id = None
-                        case "permission.asked":
-                            await self._client.async_reject_permission(
-                                session_id, event.data["id"], PERMISSION_REJECT_MESSAGE
-                            )
-                        case "form.created":
-                            await self._client.async_cancel_form(
-                                session_id, event.data["form"]["id"]
-                            )
+                        case "permission.asked" | "form.created":
+                            await self._async_refuse(session_id, event)
                         case "session.execution.succeeded":
                             finished = True
                             break
@@ -250,7 +245,7 @@ class OpenCodeBaseEntity(Entity):
 
             if not finished:
                 # The stream dropped mid-turn: wait for the turn to end instead
-                await self._client.async_wait(session_id, self._timeout)
+                await self._async_wait(session_id, self._timeout)
             elif text_id is not None:
                 return
 
@@ -265,6 +260,43 @@ class OpenCodeBaseEntity(Entity):
         else:
             yield {"role": "assistant"}
             yield {"content": answer}
+
+    async def _async_refuse(self, session_id: str, event: OpenCodeEvent) -> None:
+        """Refuse a permission request or form, since nobody can answer it."""
+        if event.type == "permission.asked":
+            await self._client.async_reject_permission(
+                session_id, event.data["id"], PERMISSION_REJECT_MESSAGE
+            )
+        else:
+            await self._client.async_cancel_form(session_id, event.data["form"]["id"])
+
+    async def _async_wait(self, session_id: str, timeout: float) -> None:
+        """Wait for the session's turn to end, refusing what it asks meanwhile."""
+        refusing = self.hass.async_create_background_task(
+            self._async_refuse_requests(session_id), f"{DOMAIN} refuse {session_id}"
+        )
+        try:
+            await self._client.async_wait(session_id, timeout)
+        finally:
+            refusing.cancel()
+
+    async def _async_refuse_requests(self, session_id: str) -> None:
+        """Refuse every permission request and form until cancelled."""
+        try:
+            async with self._client.async_events(list(REQUEST_EVENT_TYPES)) as events:
+                # Once listening, refuse what was asked before, so nothing slips by
+                for request_id in await self._client.async_get_permission_requests(
+                    session_id
+                ):
+                    await self._client.async_reject_permission(
+                        session_id, request_id, PERMISSION_REJECT_MESSAGE
+                    )
+                for form_id in await self._client.async_get_forms(session_id):
+                    await self._client.async_cancel_form(session_id, form_id)
+                async for event in _async_session_events(events, session_id):
+                    await self._async_refuse(session_id, event)
+        except OpenCodeError as err:
+            LOGGER.debug("Couldn't refuse requests for %s: %s", session_id, err)
 
     async def _async_speak(
         self,

@@ -1,5 +1,6 @@
 """Tests for the OpenCode conversation agent."""
 
+import asyncio
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ from custom_components.opencode.const import (
     HANDOFF_FAILED_MESSAGE,
     HANDOFF_MESSAGE,
     HANDOFF_TIMEOUT,
+    PERMISSION_REJECT_MESSAGE,
     SPEECH_PROMPT,
 )
 from custom_components.opencode.entity import OpenCodeBaseEntity
@@ -253,6 +255,41 @@ async def test_stream_drop_waits_for_answer(
 
     assert result.response.speech["plain"]["speech"] == "Half and the rest."
     mock_opencode.async_wait.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_waiting_refuses_requests(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a turn waited on after the stream drops still gets refusals."""
+    mock_opencode.turns = [
+        [
+            OpenCodeEvent(
+                "session.text.delta",
+                {"assistantMessageID": "msg_1", "ordinal": 0, "delta": "Half"},
+            ),
+        ]
+    ]
+    mock_opencode.last_text = "Half and the rest."
+    # Asked while nothing was listening
+    mock_opencode.async_get_permission_requests.return_value = ["per_1"]
+    mock_opencode.async_get_forms.return_value = ["frm_1"]
+    refused = asyncio.Event()
+    mock_opencode.async_cancel_form.side_effect = lambda *_: refused.set()
+
+    async def wait(*_: object) -> None:
+        # The turn only ends once what it asked is answered
+        await refused.wait()
+
+    mock_opencode.async_wait.side_effect = wait
+
+    result = await _ask(hass, "Hello")
+
+    assert result.response.speech["plain"]["speech"] == "Half and the rest."
+    mock_opencode.async_reject_permission.assert_awaited_once_with(
+        "ses_1", "per_1", PERMISSION_REJECT_MESSAGE
+    )
+    mock_opencode.async_cancel_form.assert_awaited_once_with("ses_1", "frm_1")
 
 
 @pytest.mark.parametrize(

@@ -147,6 +147,8 @@ class FakeOpenCode:
         self.async_prompt = AsyncMock(side_effect=self._prompt)
         self.async_reject_permission = AsyncMock()
         self.async_cancel_form = AsyncMock()
+        self.async_get_permission_requests = AsyncMock(return_value=[])
+        self.async_get_forms = AsyncMock(return_value=[])
         self.async_interrupt = AsyncMock()
         self.async_archive = AsyncMock()
         self.async_wait = AsyncMock()

@@ -198,7 +198,7 @@ class OpenCodeConversationEntity(
     ) -> None:
         """Wait for the turn to end and announce its answer on the satellite."""
         try:
-            await self._client.async_wait(session_id, HANDOFF_TIMEOUT)
+            await self._async_wait(session_id, HANDOFF_TIMEOUT)
             answer = await self._client.async_get_last_text(session_id)
         except OpenCodeError as err:
             LOGGER.warning("OpenCode didn't finish answering later: %s", err)

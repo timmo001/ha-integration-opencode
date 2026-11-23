@@ -146,6 +146,18 @@ class OpenCodeClient:
             json={"decision": "reject", "message": message},
         )
 
+    async def async_get_permission_requests(self, session_id: str) -> list[str]:
+        """Return the IDs of the permission requests the session is waiting on."""
+        result = await self._async_request(
+            "GET", f"/api/session/{session_id}/permission"
+        )
+        return [request["id"] for request in result["data"]]
+
+    async def async_get_forms(self, session_id: str) -> list[str]:
+        """Return the IDs of the forms the session is waiting on."""
+        result = await self._async_request("GET", f"/api/session/{session_id}/form")
+        return [form["id"] for form in result["data"]]
+
     async def async_cancel_form(self, session_id: str, form_id: str) -> None:
         """Cancel a form the session is waiting on."""
         await self._async_request("DELETE", f"/api/session/{session_id}/form/{form_id}")
