@@ -93,7 +93,9 @@ class FakeOpenCode:
         self.sessions: list[str] = []
         self.prompts: list[tuple[str, str]] = []
         self.last_text = ""
-        self.async_get_info = AsyncMock(return_value={"version": "2.4.0"})
+        self.async_get_info = AsyncMock(
+            return_value={"version": "2.4.0", "hostname": "opencode-server"}
+        )
         self.async_redeem = AsyncMock(return_value="paired-token")
         self.async_renew_token = AsyncMock(return_value="renewed-token")
         self.set_token = MagicMock()
@@ -179,7 +181,7 @@ def mock_config_entry() -> MockConfigEntry:
     """Return an OpenCode config entry with one agent and one AI task."""
     return MockConfigEntry(
         domain=DOMAIN,
-        title=URL,
+        title="opencode-server",
         data={
             CONF_URL: URL,
             CONF_TOKEN: "token",

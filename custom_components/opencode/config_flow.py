@@ -40,6 +40,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.util import dt as dt_util
 import probatio
+from yarl import URL
 
 from . import OpenCodeConfigEntry
 from .api import (
@@ -55,9 +56,7 @@ from .const import (
     CONF_RENEWED_AT,
     CONF_VARIANT,
     DEFAULT_AGENT,
-    DEFAULT_AI_TASK_NAME,
     DEFAULT_AI_TASK_TIMEOUT,
-    DEFAULT_CONVERSATION_NAME,
     DEFAULT_TIMEOUT,
     DOMAIN,
     LOGGER,
@@ -160,6 +159,39 @@ def model_selector(models: list[dict[str, Any]]) -> SelectSelector:
     )
 
 
+def _find_model(
+    models: list[dict[str, Any]], model_ref: str | None
+) -> dict[str, Any] | None:
+    """Return the model a provider/model reference points at."""
+    return next(
+        (
+            model
+            for model in models
+            if f"{model['providerID']}/{model['id']}" == model_ref
+        ),
+        None,
+    )
+
+
+def default_title(
+    server: str,
+    data: Mapping[str, Any],
+    models: list[dict[str, Any]],
+    *,
+    ai_task: bool,
+) -> str:
+    """Name an agent or AI task after its model and server, to tell them apart."""
+    name = "OpenCode"
+    if model_ref := data.get(CONF_MODEL):
+        model = _find_model(models, model_ref)
+        name = model["name"] if model else model_ref.partition("/")[2]
+    if variant := data.get(CONF_VARIANT):
+        name = f"{name} {variant}"
+    if ai_task:
+        name = f"{name} AI task"
+    return f"{name} ({server})"
+
+
 class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for OpenCode."""
 
@@ -195,6 +227,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
         try:
             token = await client.async_redeem(code)
             client.set_token(token)
+            info = await client.async_get_info()
             await client.async_get_agents()
             self._models = await client.async_get_models()
         except OpenCodeAuthError:
@@ -204,6 +237,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
         except Exception:
             LOGGER.exception("Unexpected exception")
             return {}, {"base": "unknown"}
+        self._title = info.get("hostname") or URL(url).host or url
         return {
             CONF_URL: url,
             CONF_TOKEN: token,
@@ -220,7 +254,6 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
             data, errors = await self._async_pair(user_input[CONF_LINK])
             if not errors:
                 self._data = data
-                self._title = data[CONF_URL]
                 return await self.async_step_model()
 
         return self.async_show_form(
@@ -232,20 +265,26 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Choose the model the first agent and AI task use."""
         if user_input is not None or not self._models:
+            conversation = {**DEFAULT_CONVERSATION_OPTIONS, **(user_input or {})}
+            ai_task = {**DEFAULT_AI_TASK_OPTIONS, **(user_input or {})}
             return self.async_create_entry(
                 title=self._title,
                 data=self._data,
                 subentries=[
                     ConfigSubentryData(
                         subentry_type="conversation",
-                        data={**DEFAULT_CONVERSATION_OPTIONS, **(user_input or {})},
-                        title=DEFAULT_CONVERSATION_NAME,
+                        data=conversation,
+                        title=default_title(
+                            self._title, conversation, self._models, ai_task=False
+                        ),
                         unique_id=None,
                     ),
                     ConfigSubentryData(
                         subentry_type="ai_task_data",
-                        data={**DEFAULT_AI_TASK_OPTIONS, **(user_input or {})},
-                        title=DEFAULT_AI_TASK_NAME,
+                        data=ai_task,
+                        title=default_title(
+                            self._title, ai_task, self._models, ai_task=True
+                        ),
                         unique_id=None,
                     ),
                 ],
@@ -351,7 +390,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             if not errors:
                 return self._async_update_and_finish(
-                    entry, "reauth_successful", title=data[CONF_URL], data=data
+                    entry, "reauth_successful", data=data
                 )
 
         return self.async_show_form(
@@ -373,7 +412,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             if not errors:
                 return self._async_update_and_finish(
-                    entry, "reconfigure_successful", title=data[CONF_URL], data=data
+                    entry, "reconfigure_successful", data=data
                 )
 
         return self.async_show_form(
@@ -419,25 +458,26 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             if (variant := user_input.get(CONF_VARIANT)) and (
-                model := next(
-                    (
-                        model
-                        for model in models
-                        if f"{model['providerID']}/{model['id']}"
-                        == user_input.get(CONF_MODEL)
-                    ),
-                    None,
-                )
+                model := _find_model(models, user_input.get(CONF_MODEL))
             ):
                 if variant not in _variants([model]):
                     errors[CONF_VARIANT] = "unsupported_variant"
             if not errors:
                 if is_new:
-                    name = user_input.pop(CONF_NAME)
+                    name = user_input.pop(CONF_NAME, None) or default_title(
+                        entry.title, user_input, models, ai_task=is_ai_task
+                    )
                     return self.async_create_entry(title=name, data=user_input)
-                return self.async_update_and_abort(
-                    entry, self._get_reconfigure_subentry(), data=user_input
-                )
+                subentry = self._get_reconfigure_subentry()
+                changes: dict[str, Any] = {"data": user_input}
+                # A name nobody changed follows the model
+                if subentry.title == default_title(
+                    entry.title, subentry.data, models, ai_task=is_ai_task
+                ):
+                    changes["title"] = default_title(
+                        entry.title, user_input, models, ai_task=is_ai_task
+                    )
+                return self.async_update_and_abort(entry, subentry, **changes)
 
         if user_input is not None:
             options: Mapping[str, Any] = user_input
@@ -452,13 +492,10 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
             model_ref = options.get(CONF_MODEL)
         schema: dict[Any, Any] = {}
         if is_new:
-            default_name = (
-                DEFAULT_AI_TASK_NAME if is_ai_task else DEFAULT_CONVERSATION_NAME
-            )
             # pylint: disable-next=home-assistant-config-flow-name-field
             schema[
-                probatio.Required(
-                    CONF_NAME, default=options.get(CONF_NAME, default_name)
+                probatio.Optional(
+                    CONF_NAME, description={"suggested_value": options.get(CONF_NAME)}
                 )
             ] = str
         schema.update(

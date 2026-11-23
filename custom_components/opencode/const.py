@@ -26,8 +26,6 @@ EVENT_TYPES = (
     "form.created",
 )
 
-DEFAULT_CONVERSATION_NAME = "OpenCode conversation"
-DEFAULT_AI_TASK_NAME = "OpenCode AI Task"
 DEFAULT_AGENT = "build"
 DEFAULT_TIMEOUT = 60
 DEFAULT_AI_TASK_TIMEOUT = 600

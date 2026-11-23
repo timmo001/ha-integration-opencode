@@ -110,7 +110,7 @@ async def test_user_flow(
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == URL
+    assert result["title"] == "opencode-server"
     assert result["data"] == {
         CONF_URL: URL,
         CONF_TOKEN: "paired-token",
@@ -119,21 +119,27 @@ async def test_user_flow(
     mock_opencode.async_redeem.assert_awaited_once_with("abc123")
     mock_opencode.set_token.assert_called_once_with("paired-token")
     subentries = {
-        subentry.subentry_type: subentry.data
+        subentry.subentry_type: (subentry.title, subentry.data)
         for subentry in result["result"].subentries.values()
     }
     assert subentries == {
-        "conversation": {
-            CONF_AGENT: "build",
-            CONF_MODEL: "github-copilot/claude-haiku-5.5",
-            CONF_PROMPT: llm.DEFAULT_INSTRUCTIONS_PROMPT,
-            CONF_TIMEOUT: 60,
-        },
-        "ai_task_data": {
-            CONF_AGENT: "build",
-            CONF_MODEL: "github-copilot/claude-haiku-5.5",
-            CONF_TIMEOUT: 600,
-        },
+        "conversation": (
+            "Claude Haiku 5.5 (opencode-server)",
+            {
+                CONF_AGENT: "build",
+                CONF_MODEL: "github-copilot/claude-haiku-5.5",
+                CONF_PROMPT: llm.DEFAULT_INSTRUCTIONS_PROMPT,
+                CONF_TIMEOUT: 60,
+            },
+        ),
+        "ai_task_data": (
+            "Claude Haiku 5.5 AI task (opencode-server)",
+            {
+                CONF_AGENT: "build",
+                CONF_MODEL: "github-copilot/claude-haiku-5.5",
+                CONF_TIMEOUT: 600,
+            },
+        ),
     }
 
 
@@ -152,6 +158,7 @@ async def test_user_flow_agent_default_model(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     subentry = next(iter(result["result"].subentries.values()))
     assert CONF_MODEL not in subentry.data
+    assert subentry.title == "OpenCode (opencode-server)"
 
 
 async def test_user_flow_no_models(
@@ -284,7 +291,7 @@ async def test_reconfigure_flow(
     assert result["reason"] == "reconfigure_successful"
     assert init_integration.data[CONF_URL] == "http://other.local:49374"
     assert init_integration.data[CONF_TOKEN] == "paired-token"
-    assert init_integration.title == "http://other.local:49374"
+    assert init_integration.title == "opencode-server"
 
 
 async def test_hassio_flow(
@@ -316,6 +323,7 @@ async def test_hassio_flow(
     mock_opencode.async_redeem.assert_not_awaited()
     subentry = next(iter(result["result"].subentries.values()))
     assert subentry.data[CONF_MODEL] == SMALL_MODEL
+    assert subentry.title == "MAI Code 2 Flash (OpenCode)"
 
 
 async def test_hassio_flow_cannot_connect(
@@ -518,27 +526,35 @@ async def test_add_ai_task_subentry(
     assert CONF_PROMPT not in result["data_schema"].schema
     assert suggested_value(result, CONF_MODEL) == SMALL_MODEL
     assert result["data_schema"]({CONF_AGENT: "build"})[CONF_TIMEOUT] == 600
-    assert result["data_schema"]({CONF_AGENT: "build"})[CONF_NAME] == (
-        "OpenCode AI Task"
-    )
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
-        {CONF_NAME: "Research", CONF_AGENT: "plan", CONF_TIMEOUT: 1800},
+        {
+            CONF_AGENT: "plan",
+            CONF_MODEL: "github-copilot/gemini-4-neon",
+            CONF_VARIANT: "high",
+            CONF_TIMEOUT: 1800,
+        },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "Research"
-    assert result["data"] == {CONF_AGENT: "plan", CONF_TIMEOUT: 1800}
+    assert result["title"] == "Gemini 4 Neon high AI task (opencode-server)"
+    assert result["data"] == {
+        CONF_AGENT: "plan",
+        CONF_MODEL: "github-copilot/gemini-4-neon",
+        CONF_VARIANT: "high",
+        CONF_TIMEOUT: 1800,
+    }
 
 
 async def test_reconfigure_conversation_subentry(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
-    """Test changing an agent's options."""
+    """Test changing an agent's options, with a name nobody changed following."""
     subentry = next(iter(init_integration.subentries.values()))
     hass.config_entries.async_update_subentry(
         init_integration,
         subentry,
+        title="Gemini 4 Neon (opencode-server)",
         data={**subentry.data, CONF_MODEL: "github-copilot/gemini-4-neon"},
     )
     await hass.async_block_till_done()
@@ -547,11 +563,15 @@ async def test_reconfigure_conversation_subentry(
     )
     assert suggested_value(result, CONF_MODEL) == "github-copilot/gemini-4-neon"
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {CONF_AGENT: "plan", CONF_TIMEOUT: 30}
+        result["flow_id"],
+        {CONF_AGENT: "plan", CONF_MODEL: SMALL_MODEL, CONF_TIMEOUT: 30},
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    assert init_integration.subentries[subentry.subentry_id].data == {
+    subentry = init_integration.subentries[subentry.subentry_id]
+    assert subentry.title == "MAI Code 2 Flash (opencode-server)"
+    assert subentry.data == {
         CONF_AGENT: "plan",
+        CONF_MODEL: SMALL_MODEL,
         CONF_TIMEOUT: 30,
     }
