@@ -16,7 +16,7 @@ from homeassistant.helpers import llm
 from homeassistant.util import dt as dt_util
 import probatio
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, MockUser
 
 from custom_components.opencode.const import (
     CONF_AGENT,
@@ -150,6 +150,54 @@ async def test_lists_admin_tools(hass: HomeAssistant) -> None:
     reply = await tools.async_handle("tools/list", {})
 
     assert [tool["name"] for tool in reply["result"]["tools"]] == ["LightOn"]
+
+
+@pytest.mark.usefixtures("light_tool")
+async def test_admin_apis_need_an_admin(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode, hass_admin_user: MockUser
+) -> None:
+    """Test a turn with no admin user, such as from a speaker, skips admin APIs."""
+    api = LightAPI(hass=hass, id="admin", name="Lights")
+    # A field from Home Assistant 2026.11
+    api.requires_admin = True
+    api.tool = LightTool()
+    llm.async_register_api(hass, api)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="opencode-server",
+        data={
+            CONF_URL: URL,
+            CONF_TOKEN: "token",
+            CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+        },
+        subentries_data=[
+            {
+                "subentry_type": "conversation",
+                "data": {
+                    CONF_AGENT: "build",
+                    CONF_LLM_HASS_API: ["lights", "admin"],
+                    CONF_TIMEOUT: 10,
+                },
+                "title": "OpenCode conversation",
+                "unique_id": None,
+            },
+        ],
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    mock_opencode.turns = [text_turn("On."), text_turn("On.")]
+
+    for context in (Context(), Context(user_id=hass_admin_user.id)):
+        result = await conversation.async_converse(
+            hass, "Turn on the kitchen light", None, context, agent_id=AGENT_ID
+        )
+        assert result.response.speech["plain"]["speech"] == "On."
+
+    [(anonymous, _), (admin, _)] = mock_opencode.prompts
+    tool_sessions = entry.runtime_data.tool_sessions
+    assert tool_sessions[anonymous].api.id == "lights"
+    assert tool_sessions[admin].api.id == "lights|admin"
 
 
 @pytest.mark.usefixtures("init_integration")

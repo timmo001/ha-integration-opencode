@@ -92,10 +92,25 @@ class OpenCodeConversationEntity(
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
         """Send the message to OpenCode and stream the answer back."""
+        api_ids: list[str] = self.subentry.data.get(CONF_LLM_HASS_API) or []
+        user_id = user_input.context.user_id
+        if api_ids and not (
+            user_id
+            and (user := await self.hass.auth.async_get_user(user_id))
+            and user.is_admin
+        ):
+            # Voice satellites and automations run with no user, and Core
+            # refuses them an admin-only API by failing the whole turn
+            admin_only = {
+                api.id
+                for api in llm.async_get_apis(self.hass)
+                if getattr(api, "requires_admin", False)
+            }
+            api_ids = [api_id for api_id in api_ids if api_id not in admin_only]
         try:
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
-                self.subentry.data.get(CONF_LLM_HASS_API),
+                api_ids,
                 self.subentry.data.get(CONF_PROMPT),
                 user_input.extra_system_prompt,
             )
