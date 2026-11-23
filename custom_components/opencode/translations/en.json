@@ -1,0 +1,96 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "This OpenCode server is already set up",
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Re-configuration was successful"
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "The server didn't accept the password",
+      "unknown": "Unexpected error"
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "password": "Password"
+        },
+        "data_description": {
+          "password": "The server password for {url}. Leave it empty if the server has none."
+        },
+        "description": "The OpenCode server at {url} no longer accepts the password.",
+        "title": "Re-authenticate"
+      },
+      "reconfigure": {
+        "data": {
+          "password": "Password",
+          "url": "URL"
+        },
+        "data_description": {
+          "password": "Leave it empty if the server has no password.",
+          "url": "The address of the OpenCode server, such as http://192.168.1.10:4096."
+        }
+      },
+      "user": {
+        "data": {
+          "password": "Password",
+          "url": "URL"
+        },
+        "data_description": {
+          "password": "The server password, set with OPENCODE_SERVER_PASSWORD or the app's server password option. Leave it empty if the server has none.",
+          "url": "The address of the OpenCode server, such as http://192.168.1.10:4096."
+        },
+        "description": "Connect to an OpenCode server so its agents can answer Assist."
+      }
+    }
+  },
+  "config_subentries": {
+    "conversation": {
+      "abort": {
+        "cannot_connect": "Failed to connect",
+        "entry_not_loaded": "Failed to add agent. The server isn't loaded.",
+        "reconfigure_successful": "Re-configuration was successful"
+      },
+      "entry_type": "Conversation agent",
+      "initiate_flow": {
+        "reconfigure": "Reconfigure conversation agent",
+        "user": "Add conversation agent"
+      },
+      "step": {
+        "set_options": {
+          "data": {
+            "agent": "Agent",
+            "directory": "Directory",
+            "model": "Model",
+            "name": "Name",
+            "prompt": "Instructions",
+            "timeout": "Timeout",
+            "variant": "Variant"
+          },
+          "data_description": {
+            "agent": "The OpenCode agent that answers.",
+            "directory": "The folder on the server the session works in. Leave it empty for the server's default.",
+            "model": "The model the session uses. Leave it empty for the agent's default.",
+            "prompt": "Sent at the start of each conversation. This can be a template.",
+            "timeout": "How long to wait for an answer before giving up.",
+            "variant": "The model's effort variant, such as high. Leave it empty for the default."
+          }
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Couldn't reach the OpenCode server"
+    },
+    "invalid_auth": {
+      "message": "The OpenCode server didn't accept the password"
+    },
+    "timeout": {
+      "message": "OpenCode took too long to answer"
+    },
+    "turn_failed": {
+      "message": "OpenCode couldn't finish the answer, check the session on the server"
+    }
+  }
+}
