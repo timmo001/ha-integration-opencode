@@ -60,6 +60,19 @@ With the [OpenCode app](https://github.com/timmo001/app-opencode) on Home Assist
 
 Add a second server, such as a more powerful machine, as another entry, and use its agents for the assistants that need them.
 
+## The app or a server of your own
+
+The model runs at your provider wherever OpenCode runs, so a bigger machine doesn't make it think faster. What runs on the machine is everything the agent does with its answer: shell commands, tools, MCP servers and anything it builds.
+
+|                 | [OpenCode app](https://github.com/timmo001/app-opencode)                                                                                 | A server of your own                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Setting up      | Found and paired by itself                                                                                                               | Pair with a link, and open port 49374                                      |
+| Power           | Shares the Home Assistant host's processor and memory, so heavy work slows Home Assistant down, most of all on a Green or a Raspberry Pi | As much as the machine has, without touching Home Assistant                |
+| What it reaches | Home Assistant's configuration folder, and Home Assistant's whole API as an administrator                                                | Your files, projects and network, as the user OpenCode runs as             |
+| Best for        | Quick questions and the home itself                                                                                                      | Research, longer jobs, and anything that needs your projects or more power |
+
+You can use both: add each as its own entry, and pick an agent from either for each voice assistant. Either way, the agent can reach a lot, so [lock down](#locking-an-agent-down) the agents that answer Assist.
+
 ## How it works
 
 - Each Assist conversation is one OpenCode session, so follow-up questions keep their context. The session is archived on the server when Assist forgets the conversation, after five minutes.
@@ -94,6 +107,39 @@ To use Home Assistant's tools from your own OpenCode sessions as well, add Home 
 ### AI tasks
 
 An AI task lets automations and scripts hand OpenCode work with the **AI Task: Generate data** action (`ai_task.generate_data`). Each task runs in a session of its own, archived when it's done. Give the action a structure and OpenCode answers with data in that shape, such as a list of rooms. AI tasks have the same options as agents, without Instructions, and a Timeout of 10 minutes by default.
+
+## Locking an agent down
+
+Anyone who can talk to a voice assistant can talk to its agent. OpenCode's `build` agent can run shell commands and edit files, and in the app it can use Home Assistant's whole API. Nobody can approve anything from Assist, so a [permission](https://opencode.ai/docs/permissions) rule that asks ends up refused, the same as one that denies.
+
+Give the agents that answer Assist a folder of their own on the server, with an [agent](https://opencode.ai/docs/agents) that's only allowed what they need. In OpenCode's config, the last rule that matches wins, so start by denying everything:
+
+1. Make a folder for it, such as `~/assist` on a server or `/data/home/assist` in the app
+2. Add `opencode.jsonc` to the folder:
+
+   ```jsonc
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "agents": {
+       "assist": {
+         "description": "Answers Home Assistant's Assist",
+         "mode": "primary",
+         "permissions": [
+           { "action": "*", "resource": "*", "effect": "deny" },
+           { "action": "homeassistant_*", "resource": "*", "effect": "allow" },
+           { "action": "webfetch", "resource": "*", "effect": "allow" },
+           { "action": "websearch", "resource": "*", "effect": "allow" },
+         ],
+       },
+     },
+   }
+   ```
+
+3. **Reconfigure** the agent in Home Assistant: type `assist` as the **Agent**, and set **Directory** to the folder. The Agent list only shows the server's own agents, so type the name rather than picking it
+
+This agent can search and read the web, and use Home Assistant's tools, but it has no shell and can't read or change files, in the folder or outside it. Denying everything also turns off OpenCode's Code Mode, so Home Assistant's tools are offered to the model directly. Add rules for anything else it should have, such as `{ "action": "read", "resource": "*", "effect": "allow" }` to read files in the folder, or `<server>_*` for one of your MCP servers.
+
+Sessions only use a folder's config while they work in it, so your own sessions elsewhere keep their usual agents and rules. To keep the agent and its rules everywhere, such as to see it in the Agent list, put the same `agents` entry in the server's own config instead: `~/.config/opencode/opencode.jsonc`, or `opencode.json` in the app's config folder.
 
 ## Options
 
