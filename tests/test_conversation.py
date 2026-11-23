@@ -1,6 +1,7 @@
 """Tests for the OpenCode conversation agent."""
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components import conversation
@@ -10,6 +11,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
+    async_mock_service,
 )
 
 from custom_components.opencode.api import (
@@ -17,18 +19,33 @@ from custom_components.opencode.api import (
     OpenCodeEvent,
     OpenCodeNotFoundError,
 )
+from custom_components.opencode.const import (
+    HANDOFF_FAILED_MESSAGE,
+    HANDOFF_MESSAGE,
+    HANDOFF_TIMEOUT,
+)
+from custom_components.opencode.entity import OpenCodeBaseEntity
 
-from .conftest import FakeOpenCode, text_turn
+from .conftest import FakeOpenCode, slow_turn, text_turn
 
 AGENT_ID = "conversation.opencode_conversation"
+SATELLITE_ID = "assist_satellite.kitchen"
 
 
 async def _ask(
-    hass: HomeAssistant, text: str, conversation_id: str | None = None
+    hass: HomeAssistant,
+    text: str,
+    conversation_id: str | None = None,
+    satellite_id: str | None = None,
 ) -> conversation.ConversationResult:
     # Satellites send a context without a user
     return await conversation.async_converse(
-        hass, text, conversation_id, Context(), agent_id=AGENT_ID
+        hass,
+        text,
+        conversation_id,
+        Context(),
+        agent_id=AGENT_ID,
+        satellite_id=satellite_id,
     )
 
 
@@ -221,6 +238,66 @@ async def test_unreachable_server(
         result.response.speech["plain"]["speech"]
         == "Couldn't reach the OpenCode server"
     )
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_timeout_stops_turn(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a turn still running at the timeout is stopped when typed."""
+    mock_opencode.turns = [slow_turn("Let me check.")]
+
+    with patch.object(OpenCodeBaseEntity, "_timeout", 0.05):
+        result = await _ask(hass, "Research the weather")
+
+    assert result.response.response_type is intent.IntentResponseType.ERROR
+    await hass.async_block_till_done()
+    mock_opencode.async_interrupt.assert_awaited_once_with("ses_1")
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_slow_answer_announced(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a satellite hears the answer later, and a follow-up starts afresh."""
+    announce = async_mock_service(hass, "assist_satellite", "announce")
+    mock_opencode.turns = [slow_turn("Let me check."), text_turn("Hi.")]
+    mock_opencode.last_text = "It's 21 degrees."
+
+    with patch.object(OpenCodeBaseEntity, "_timeout", 0.05):
+        result = await _ask(hass, "Research the weather", satellite_id=SATELLITE_ID)
+
+    assert result.response.response_type is intent.IntentResponseType.ACTION_DONE
+    assert result.response.speech["plain"]["speech"] == HANDOFF_MESSAGE
+    await hass.async_block_till_done(wait_background_tasks=True)
+    mock_opencode.async_interrupt.assert_not_awaited()
+    mock_opencode.async_wait.assert_awaited_once_with("ses_1", HANDOFF_TIMEOUT)
+    assert len(announce) == 1
+    assert announce[0].data == {
+        "entity_id": SATELLITE_ID,
+        "message": "It's 21 degrees.",
+    }
+    mock_opencode.async_archive.assert_awaited_once_with("ses_1")
+
+    await _ask(hass, "Hello", result.conversation_id, satellite_id=SATELLITE_ID)
+    assert mock_opencode.sessions == ["ses_1", "ses_2"]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_slow_answer_failed(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a satellite hears an apology when the answer never comes."""
+    announce = async_mock_service(hass, "assist_satellite", "announce")
+    mock_opencode.turns = [slow_turn()]
+    mock_opencode.async_wait.side_effect = OpenCodeConnectionError
+
+    with patch.object(OpenCodeBaseEntity, "_timeout", 0.05):
+        await _ask(hass, "Research the weather", satellite_id=SATELLITE_ID)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    mock_opencode.async_interrupt.assert_awaited_once_with("ses_1")
+    assert announce[0].data["message"] == HANDOFF_FAILED_MESSAGE
 
 
 @pytest.mark.usefixtures("init_integration")

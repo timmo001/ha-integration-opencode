@@ -1,5 +1,6 @@
 """Fixtures for the OpenCode tests."""
 
+import asyncio
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -132,9 +133,18 @@ class FakeOpenCode:
             # Another session's event, which the entity has to skip
             yield OpenCodeEvent("session.text.delta", {"sessionID": "ses_other"})
             while self._pending:
-                yield self._pending.pop(0)
+                event = self._pending.pop(0)
+                if event.type == "hang":
+                    # A turn still working when the entity stops waiting
+                    await asyncio.Event().wait()
+                yield event
 
         yield events()
+
+
+def slow_turn(*deltas: str) -> list[OpenCodeEvent]:
+    """Return the events of a turn that streams some text, then keeps working."""
+    return [*text_turn(*deltas)[:-1], OpenCodeEvent("hang", {})]
 
 
 def text_turn(*deltas: str, message_id: str = "msg_1") -> list[OpenCodeEvent]:
@@ -166,7 +176,7 @@ def mock_opencode() -> Generator[FakeOpenCode]:
 
 @pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
-    """Return an OpenCode config entry with one agent."""
+    """Return an OpenCode config entry with one agent and one AI task."""
     return MockConfigEntry(
         domain=DOMAIN,
         title=URL,
@@ -185,7 +195,13 @@ def mock_config_entry() -> MockConfigEntry:
                 },
                 "title": "OpenCode conversation",
                 "unique_id": None,
-            }
+            },
+            {
+                "subentry_type": "ai_task_data",
+                "data": {CONF_AGENT: "build", CONF_TIMEOUT: 10},
+                "title": "OpenCode AI Task",
+                "unique_id": None,
+            },
         ],
     )
 

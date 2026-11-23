@@ -27,12 +27,19 @@ EVENT_TYPES = (
 )
 
 DEFAULT_CONVERSATION_NAME = "OpenCode conversation"
+DEFAULT_AI_TASK_NAME = "OpenCode AI Task"
 DEFAULT_AGENT = "build"
 DEFAULT_TIMEOUT = 60
+DEFAULT_AI_TASK_TIMEOUT = 600
 MIN_TIMEOUT = 5
-MAX_TIMEOUT = 600
+MAX_TIMEOUT = 3600
 
 REQUEST_TIMEOUT = 10
+
+# How long a turn handed off to answer later on a satellite can keep going
+HANDOFF_TIMEOUT = 600
+HANDOFF_MESSAGE = "On it, I'll tell you when it's done."
+HANDOFF_FAILED_MESSAGE = "Sorry, OpenCode couldn't finish that."
 
 PERMISSION_REJECT_MESSAGE = (
     "This question came from a Home Assistant voice assistant, "

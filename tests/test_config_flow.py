@@ -17,6 +17,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import llm
 from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.util import dt as dt_util
 import pytest
@@ -117,11 +118,23 @@ async def test_user_flow(
     }
     mock_opencode.async_redeem.assert_awaited_once_with("abc123")
     mock_opencode.set_token.assert_called_once_with("paired-token")
-    subentries = list(result["result"].subentries.values())
-    assert len(subentries) == 1
-    assert subentries[0].subentry_type == "conversation"
-    assert subentries[0].data[CONF_AGENT] == "build"
-    assert subentries[0].data[CONF_MODEL] == "github-copilot/claude-haiku-5.5"
+    subentries = {
+        subentry.subentry_type: subentry.data
+        for subentry in result["result"].subentries.values()
+    }
+    assert subentries == {
+        "conversation": {
+            CONF_AGENT: "build",
+            CONF_MODEL: "github-copilot/claude-haiku-5.5",
+            CONF_PROMPT: llm.DEFAULT_INSTRUCTIONS_PROMPT,
+            CONF_TIMEOUT: 60,
+        },
+        "ai_task_data": {
+            CONF_AGENT: "build",
+            CONF_MODEL: "github-copilot/claude-haiku-5.5",
+            CONF_TIMEOUT: 600,
+        },
+    }
 
 
 async def test_user_flow_agent_default_model(
@@ -491,6 +504,31 @@ async def test_add_conversation_subentry_unsupported_variant(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_VARIANT] == "xhigh"
+
+
+async def test_add_ai_task_subentry(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test adding an AI task, which has no instructions and a longer timeout."""
+    result = await hass.config_entries.subentries.async_init(
+        (init_integration.entry_id, "ai_task_data"),
+        context={"source": SOURCE_USER},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert CONF_PROMPT not in result["data_schema"].schema
+    assert suggested_value(result, CONF_MODEL) == SMALL_MODEL
+    assert result["data_schema"]({CONF_AGENT: "build"})[CONF_TIMEOUT] == 600
+    assert result["data_schema"]({CONF_AGENT: "build"})[CONF_NAME] == (
+        "OpenCode AI Task"
+    )
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {CONF_NAME: "Research", CONF_AGENT: "plan", CONF_TIMEOUT: 1800},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Research"
+    assert result["data"] == {CONF_AGENT: "plan", CONF_TIMEOUT: 1800}
 
 
 async def test_reconfigure_conversation_subentry(

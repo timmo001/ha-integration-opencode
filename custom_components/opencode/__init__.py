@@ -21,7 +21,7 @@ from .const import (
     TOKEN_RENEW_AFTER,
 )
 
-PLATFORMS = (Platform.CONVERSATION,)
+PLATFORMS = (Platform.AI_TASK, Platform.CONVERSATION)
 
 
 @dataclass(slots=True)

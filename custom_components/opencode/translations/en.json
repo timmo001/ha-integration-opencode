@@ -24,7 +24,7 @@
         "data_description": {
           "model": "A small, fast model keeps spoken answers quick. Leave it empty for the agent's default. You can change it later with **Reconfigure** on the agent."
         },
-        "description": "Pick the model that answers Assist.",
+        "description": "Pick the model that answers Assist and does AI tasks.",
         "title": "Model"
       },
       "reauth_confirm": {
@@ -58,6 +58,40 @@
     }
   },
   "config_subentries": {
+    "ai_task_data": {
+      "abort": {
+        "cannot_connect": "Failed to connect",
+        "entry_not_loaded": "Failed to add AI task. The server isn't loaded.",
+        "reconfigure_successful": "Re-configuration was successful"
+      },
+      "entry_type": "AI task",
+      "error": {
+        "unsupported_variant": "The model you picked doesn't have this variant. Pick another, or leave it empty."
+      },
+      "initiate_flow": {
+        "reconfigure": "Reconfigure AI task",
+        "user": "Add AI task"
+      },
+      "step": {
+        "set_options": {
+          "data": {
+            "agent": "Agent",
+            "directory": "Directory",
+            "model": "Model",
+            "name": "Name",
+            "timeout": "Timeout",
+            "variant": "Variant"
+          },
+          "data_description": {
+            "agent": "The OpenCode agent that does the task.",
+            "directory": "The folder on the server the session works in. Leave it empty for the server's default.",
+            "model": "The model the session uses. Leave it empty for the agent's default.",
+            "timeout": "How long a task can take before it's stopped.",
+            "variant": "How hard the model thinks, such as high. Leave it empty for the model's default."
+          }
+        }
+      }
+    },
     "conversation": {
       "abort": {
         "cannot_connect": "Failed to connect",
@@ -88,7 +122,7 @@
             "directory": "The folder on the server the session works in. Leave it empty for the server's default.",
             "model": "The model the session uses. Leave it empty for the agent's default.",
             "prompt": "Sent at the start of each conversation. This can be a template.",
-            "timeout": "How long to wait for an answer before giving up.",
+            "timeout": "How long to wait for an answer. Asked on a voice satellite, a slower answer is announced on it once it's done, up to 10 minutes later. Anywhere else, OpenCode is stopped.",
             "variant": "How hard the model thinks, such as high. Leave it empty for the model's default."
           }
         }
@@ -101,6 +135,12 @@
     },
     "invalid_auth": {
       "message": "The OpenCode server no longer accepts Home Assistant's pairing"
+    },
+    "invalid_structure": {
+      "message": "OpenCode's answer wasn't in the structure the task asked for"
+    },
+    "no_answer": {
+      "message": "OpenCode finished without an answer"
     },
     "timeout": {
       "message": "OpenCode took too long to answer"

@@ -9,7 +9,9 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-  # The conversation integration's requirements in that Home Assistant version
+  # The conversation and ai_task integrations' requirements in that Home
+  # Assistant version (ai_task imports camera)
+  "PyTurboJPEG==1.8.3",
   "gazetteer-matcher==1.1.0",
   "hassil==3.12.1",
   "home-assistant-intents==2026.10.6",

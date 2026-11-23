@@ -5,8 +5,10 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 ## Layout
 
 - `custom_components/opencode/api.py`: the HTTP and event-stream client for one OpenCode server
-- `custom_components/opencode/config_flow.py`: one config entry per server, with a `conversation` subentry per agent
-- `custom_components/opencode/conversation.py`: the conversation entity, its session map, locks and fallbacks
+- `custom_components/opencode/config_flow.py`: one config entry per server, with a `conversation` subentry per agent and an `ai_task_data` subentry per AI task
+- `custom_components/opencode/entity.py`: the base both entities share: creating sessions, streaming an answer, its timeout and fallbacks
+- `custom_components/opencode/conversation.py`: the conversation entity, its session map and locks, and handing a slow answer off to announce later
+- `custom_components/opencode/ai_task.py`: the AI task entity, one session per task, with structured output as JSON
 - `tests/`: pytest with `pytest-homeassistant-custom-component`, against a fake client
 
 ## Stack
@@ -26,6 +28,7 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 - Home Assistant pairs with a server from a one-time `opencode pair` link: it redeems the code at `/auth/connect/{code}` for a token and sends it as the Basic auth password. Paired tokens last 30 days, so the entry swaps its token for a new one every week, without reloading. A refused token starts reauth, which asks for a new link.
 - Sessions deny the `question` permission when created. Other permission requests are rejected and forms cancelled, since nobody can answer them from a speaker.
 - A prompt to a session that's gone (404) or can't take it (409) starts a new session. If the event stream drops mid-turn, the entity waits on `/api/experimental/session/{id}/wait` and reads the last message instead.
+- A turn still running at the Timeout is interrupted, unless a voice satellite asked: then the answer says so, and a background task waits on `/wait` and announces the last message with `assist_satellite.announce`.
 - Sessions are archived, not deleted, when Assist forgets the conversation.
 
 ## Rollout

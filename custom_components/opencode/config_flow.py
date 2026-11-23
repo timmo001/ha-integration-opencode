@@ -55,6 +55,8 @@ from .const import (
     CONF_RENEWED_AT,
     CONF_VARIANT,
     DEFAULT_AGENT,
+    DEFAULT_AI_TASK_NAME,
+    DEFAULT_AI_TASK_TIMEOUT,
     DEFAULT_CONVERSATION_NAME,
     DEFAULT_TIMEOUT,
     DOMAIN,
@@ -75,6 +77,10 @@ DEFAULT_CONVERSATION_OPTIONS = {
     CONF_AGENT: DEFAULT_AGENT,
     CONF_PROMPT: llm.DEFAULT_INSTRUCTIONS_PROMPT,
     CONF_TIMEOUT: DEFAULT_TIMEOUT,
+}
+DEFAULT_AI_TASK_OPTIONS = {
+    CONF_AGENT: DEFAULT_AGENT,
+    CONF_TIMEOUT: DEFAULT_AI_TASK_TIMEOUT,
 }
 
 
@@ -224,7 +230,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_model(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose the model the first agent uses."""
+        """Choose the model the first agent and AI task use."""
         if user_input is not None or not self._models:
             return self.async_create_entry(
                 title=self._title,
@@ -235,7 +241,13 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                         data={**DEFAULT_CONVERSATION_OPTIONS, **(user_input or {})},
                         title=DEFAULT_CONVERSATION_NAME,
                         unique_id=None,
-                    )
+                    ),
+                    ConfigSubentryData(
+                        subentry_type="ai_task_data",
+                        data={**DEFAULT_AI_TASK_OPTIONS, **(user_input or {})},
+                        title=DEFAULT_AI_TASK_NAME,
+                        unique_id=None,
+                    ),
                 ],
             )
 
@@ -378,11 +390,14 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
         cls, config_entry: OpenCodeConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
         """Return the subentries this integration supports."""
-        return {"conversation": OpenCodeSubentryFlowHandler}
+        return {
+            "conversation": OpenCodeSubentryFlowHandler,
+            "ai_task_data": OpenCodeSubentryFlowHandler,
+        }
 
 
 class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
-    """Add or change an OpenCode conversation agent."""
+    """Add or change an OpenCode conversation agent or AI task."""
 
     async def async_step_set_options(
         self, user_input: dict[str, Any] | None = None
@@ -393,6 +408,7 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
             return self.async_abort(reason="entry_not_loaded")
 
         is_new = self.source == "user"
+        is_ai_task = self._subentry_type == "ai_task_data"
         client = entry.runtime_data.client
         try:
             agents = await client.async_get_agents()
@@ -427,18 +443,22 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
             options: Mapping[str, Any] = user_input
             model_ref = user_input.get(CONF_MODEL)
         elif is_new:
-            options = DEFAULT_CONVERSATION_OPTIONS
+            options = (
+                DEFAULT_AI_TASK_OPTIONS if is_ai_task else DEFAULT_CONVERSATION_OPTIONS
+            )
             model_ref = suggest_small_model(models)
         else:
             options = self._get_reconfigure_subentry().data
             model_ref = options.get(CONF_MODEL)
         schema: dict[Any, Any] = {}
         if is_new:
+            default_name = (
+                DEFAULT_AI_TASK_NAME if is_ai_task else DEFAULT_CONVERSATION_NAME
+            )
             # pylint: disable-next=home-assistant-config-flow-name-field
             schema[
                 probatio.Required(
-                    CONF_NAME,
-                    default=options.get(CONF_NAME, DEFAULT_CONVERSATION_NAME),
+                    CONF_NAME, default=options.get(CONF_NAME, default_name)
                 )
             ] = str
         schema.update(
@@ -473,13 +493,23 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
                     CONF_DIRECTORY,
                     description={"suggested_value": options.get(CONF_DIRECTORY)},
                 ): TextSelector(),
+            }
+        )
+        if not is_ai_task:
+            schema[
                 probatio.Optional(
                     CONF_PROMPT,
                     description={"suggested_value": options.get(CONF_PROMPT)},
-                ): TemplateSelector(),
+                )
+            ] = TemplateSelector()
+        schema.update(
+            {
                 probatio.Required(
                     CONF_TIMEOUT,
-                    default=options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+                    default=options.get(
+                        CONF_TIMEOUT,
+                        DEFAULT_AI_TASK_TIMEOUT if is_ai_task else DEFAULT_TIMEOUT,
+                    ),
                 ): NumberSelector(
                     NumberSelectorConfig(
                         min=MIN_TIMEOUT,
