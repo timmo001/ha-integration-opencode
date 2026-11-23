@@ -10,7 +10,7 @@ from collections.abc import (
 )
 from typing import Any
 
-from homeassistant.components import conversation
+from homeassistant.components import conversation, persistent_notification
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import CONF_MODEL, CONF_TIMEOUT
 from homeassistant.core import callback
@@ -34,10 +34,12 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
     EVENT_TYPES,
+    FULL_ANSWER_MESSAGE,
     HANDOFF_MESSAGE,
     LOGGER,
     PERMISSION_REJECT_MESSAGE,
 )
+from .speech import SpeechCleaner, full_answer, to_speech
 
 # Nobody can answer the question tool from a voice assistant or an automation
 SESSION_PERMISSIONS = [{"action": "question", "resource": "*", "effect": "deny"}]
@@ -91,12 +93,15 @@ class OpenCodeBaseEntity(Entity):
         chat_log: conversation.ChatLog,
         send: Callable[[], Awaitable[str]],
         hand_off: Callable[[str], None] | None = None,
+        spoken_question: str | None = None,
     ) -> None:
         """Send a prompt and stream the answer into the chat log.
 
         `send` sends the prompt and returns the session it went to. Given
         `hand_off`, a turn still running at the timeout is passed to it to
         finish later, and the answer says so, rather than being stopped.
+        Given the question it answers aloud, the answer is cleaned for a
+        speaker, and saved in full when that leaves something out.
         """
         session_id: str | None = None
 
@@ -109,6 +114,8 @@ class OpenCodeBaseEntity(Entity):
             conversation.AssistantContentDeltaDict
         ]:
             stream = self._async_stream(async_send)
+            if spoken_question is not None:
+                stream = self._async_speak(spoken_question, stream)
             deadline = asyncio.get_running_loop().time() + self._timeout
             while True:
                 try:
@@ -200,6 +207,45 @@ class OpenCodeBaseEntity(Entity):
         else:
             yield {"role": "assistant"}
             yield {"content": answer}
+
+    async def _async_speak(
+        self,
+        question: str,
+        stream: AsyncIterator[conversation.AssistantContentDeltaDict],
+    ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
+        """Clean a streamed answer for a speaker."""
+        cleaner = SpeechCleaner()
+        async for delta in stream:
+            if "content" not in delta:
+                # Another message: only the last one is the answer
+                if rest := cleaner.flush():
+                    yield {"content": rest}
+                cleaner = SpeechCleaner()
+                yield delta
+            elif text := cleaner.feed(delta["content"]):
+                yield {"content": text}
+
+        rest = cleaner.flush()
+        if cleaner.has_more:
+            self._async_save_full_answer(question, cleaner.text)
+            rest += cleaner.say(FULL_ANSWER_MESSAGE)
+        if rest:
+            yield {"content": rest}
+
+    def _speech(self, question: str, answer: str) -> str:
+        """Return an answer to speak, saving it in full when that loses some."""
+        speech, has_more = to_speech(answer)
+        if has_more:
+            self._async_save_full_answer(question, answer)
+            speech = f"{speech}\n{FULL_ANSWER_MESSAGE}".strip()
+        return speech
+
+    @callback
+    def _async_save_full_answer(self, question: str, answer: str) -> None:
+        """Save an answer as written where it can be read later."""
+        persistent_notification.async_create(
+            self.hass, f"> {question}\n\n{full_answer(answer)}", self.subentry.title
+        )
 
     @callback
     def _async_archive(self, session_id: str) -> None:

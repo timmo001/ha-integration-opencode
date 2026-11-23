@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.components import conversation
+from homeassistant.components import conversation, persistent_notification
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import intent
 import pytest
@@ -20,9 +20,11 @@ from custom_components.opencode.api import (
     OpenCodeNotFoundError,
 )
 from custom_components.opencode.const import (
+    FULL_ANSWER_MESSAGE,
     HANDOFF_FAILED_MESSAGE,
     HANDOFF_MESSAGE,
     HANDOFF_TIMEOUT,
+    SPEECH_PROMPT,
 )
 from custom_components.opencode.entity import OpenCodeBaseEntity
 
@@ -298,6 +300,46 @@ async def test_slow_answer_failed(
 
     mock_opencode.async_interrupt.assert_awaited_once_with("ses_1")
     assert announce[0].data["message"] == HANDOFF_FAILED_MESSAGE
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_spoken_answer_plain(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a satellite hears plain text, and the full answer is saved."""
+    mock_opencode.turns = [
+        text_turn(
+            "## Weather\nIt's **21 degrees**, see [the forecast](https://",
+            "example.com).\n[full answer]\n| Day | High |\n| --- | --- |",
+        )
+    ]
+
+    result = await _ask(hass, "What's the weather?", satellite_id=SATELLITE_ID)
+
+    assert result.response.speech["plain"]["speech"] == (
+        f"Weather.\nIt's 21 degrees, see the forecast.\n{FULL_ANSWER_MESSAGE}"
+    )
+    assert SPEECH_PROMPT in mock_opencode.prompts[0][1]
+    notifications = persistent_notification._async_get_or_create_notifications(hass)
+    (notification,) = notifications.values()
+    assert notification["title"] == "OpenCode conversation"
+    assert notification["message"].startswith("> What's the weather?\n\n## Weather")
+    assert "[full answer]" not in notification["message"]
+    assert "| Day | High |" in notification["message"]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_typed_answer_as_written(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a typed question gets the answer as written."""
+    mock_opencode.turns = [text_turn("It's **21 degrees**.")]
+
+    result = await _ask(hass, "What's the weather?")
+
+    assert result.response.speech["plain"]["speech"] == "It's **21 degrees**."
+    assert SPEECH_PROMPT not in mock_opencode.prompts[0][1]
+    assert not persistent_notification._async_get_or_create_notifications(hass)
 
 
 @pytest.mark.usefixtures("init_integration")

@@ -50,6 +50,7 @@ Add a second server, such as a more powerful machine, as another entry, and use 
 - Each Assist conversation is one OpenCode session, so follow-up questions keep their context. The session is archived on the server when Assist forgets the conversation, after five minutes.
 - The answer streams back as the agent writes it, so a voice satellite can start speaking early.
 - Asked on a voice satellite, an answer that takes longer than the agent's Timeout doesn't hold up the satellite. It says "On it, I'll tell you when it's done", and announces the answer once OpenCode finishes, up to 10 minutes later. Typed in Assist, OpenCode is stopped at the Timeout instead.
+- On a voice satellite, the agent is told it's being heard, and to keep anything bigger than a few sentences, such as code, a table or a document, after the spoken answer. What the speaker reads is plain text: Markdown is stripped whatever the model writes. When something is left out, the answer as written is saved as a notification, and the speaker says so. Typed in Assist, the answer shows as written.
 - Nobody can approve anything from a speaker, so the session can't ask questions, and any permission it asks for is refused with a note saying why.
 - The OpenCode agent uses its own tools and MCP servers, not Home Assistant's Assist API. To control your home, give the agent a Home Assistant MCP server.
 

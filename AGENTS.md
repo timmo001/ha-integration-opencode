@@ -9,6 +9,7 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 - `custom_components/opencode/entity.py`: the base both entities share: creating sessions, streaming an answer, its timeout and fallbacks
 - `custom_components/opencode/conversation.py`: the conversation entity, its session map and locks, and handing a slow answer off to announce later
 - `custom_components/opencode/ai_task.py`: the AI task entity, one session per task, with structured output as JSON
+- `custom_components/opencode/speech.py`: cleaning Markdown answers into plain text for a voice satellite, a line at a time
 - `tests/`: pytest with `pytest-homeassistant-custom-component`, against a fake client
 
 ## Stack
@@ -29,6 +30,7 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 - Sessions deny the `question` permission when created. Other permission requests are rejected and forms cancelled, since nobody can answer them from a speaker.
 - A prompt to a session that's gone (404) or can't take it (409) starts a new session. If the event stream drops mid-turn, the entity waits on `/api/experimental/session/{id}/wait` and reads the last message instead.
 - A turn still running at the Timeout is interrupted, unless a voice satellite asked: then the answer says so, and a background task waits on `/wait` and announces the last message with `assist_satellite.announce`.
+- On a voice satellite, the first prompt asks for plain speech with anything bigger after a `[full answer]` line. The entity strips Markdown from what's spoken and, when it leaves something out, saves the answer as written as a persistent notification.
 - Sessions are archived, not deleted, when Assist forgets the conversation.
 
 ## Rollout

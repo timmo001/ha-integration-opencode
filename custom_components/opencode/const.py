@@ -41,6 +41,17 @@ HANDOFF_TIMEOUT = 600
 HANDOFF_MESSAGE = "On it, I'll tell you when it's done."
 HANDOFF_FAILED_MESSAGE = "Sorry, OpenCode couldn't finish that."
 
+# Sent with the first message of a conversation on a voice satellite
+SPEECH_PROMPT = (
+    "You're being heard through a voice assistant speaker. Answer in a few"
+    " short, plain spoken sentences, with no Markdown, lists, links or code."
+    " If the answer needs more, such as a list, a table, code or a document,"
+    " give the short spoken answer first, then a line with only [full answer],"
+    " then the full answer in Markdown. Home Assistant saves everything after"
+    " that line as a notification, and doesn't read it aloud."
+)
+FULL_ANSWER_MESSAGE = "I've put the full answer in your notifications."
+
 PERMISSION_REJECT_MESSAGE = (
     "This question came from a Home Assistant voice assistant, "
     "where nobody can approve this. Answer without it."

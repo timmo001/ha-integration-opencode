@@ -15,7 +15,13 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OpenCodeConfigEntry
 from .api import OpenCodeConflictError, OpenCodeError, OpenCodeNotFoundError
-from .const import DOMAIN, HANDOFF_FAILED_MESSAGE, HANDOFF_TIMEOUT, LOGGER
+from .const import (
+    DOMAIN,
+    HANDOFF_FAILED_MESSAGE,
+    HANDOFF_TIMEOUT,
+    LOGGER,
+    SPEECH_PROMPT,
+)
 from .entity import OpenCodeBaseEntity
 
 
@@ -99,6 +105,7 @@ class OpenCodeConversationEntity(
                     callback(lambda: self._async_forget(conversation_id))
                 )
 
+        satellite_id = user_input.satellite_id
         async with self._locks[conversation_id]:
             await self._async_answer(
                 chat_log,
@@ -108,12 +115,19 @@ class OpenCodeConversationEntity(
                     chat_log.content[0].content,
                     chat_log.extra_system_prompt,
                     user_input.text,
+                    spoken=satellite_id is not None,
                 ),
                 (
-                    partial(self._async_hand_off, conversation_id, satellite_id)
-                    if (satellite_id := user_input.satellite_id)
+                    partial(
+                        self._async_hand_off,
+                        conversation_id,
+                        satellite_id,
+                        user_input.text,
+                    )
+                    if satellite_id
                     else None
                 ),
+                user_input.text if satellite_id else None,
             )
 
         return conversation.async_get_result_from_chat_log(user_input, chat_log)
@@ -124,6 +138,8 @@ class OpenCodeConversationEntity(
         instructions: str,
         extra_system_prompt: str | None,
         text: str,
+        *,
+        spoken: bool,
     ) -> str:
         """Send the prompt, starting a session when there isn't a usable one."""
         if session_id := self._sessions.get(conversation_id):
@@ -143,24 +159,28 @@ class OpenCodeConversationEntity(
 
         session_id = await self._async_create_session(self.subentry.title)
         self._sessions[conversation_id] = session_id
+        if spoken:
+            instructions = f"{instructions}\n\n{SPEECH_PROMPT}"
         await self._client.async_prompt(session_id, f"{instructions}\n\n{text}")
         self._extra_prompts[conversation_id] = extra_system_prompt
         return session_id
 
     @callback
     def _async_hand_off(
-        self, conversation_id: str, satellite_id: str, session_id: str
+        self, conversation_id: str, satellite_id: str, question: str, session_id: str
     ) -> None:
         """Let a slow turn finish by itself, then announce its answer."""
         # A follow-up starts another session rather than waiting on this one
         self._sessions.pop(conversation_id, None)
         self._extra_prompts.pop(conversation_id, None)
         self.hass.async_create_background_task(
-            self._async_announce_later(session_id, satellite_id),
+            self._async_announce_later(session_id, satellite_id, question),
             f"{DOMAIN} answer {session_id} later",
         )
 
-    async def _async_announce_later(self, session_id: str, satellite_id: str) -> None:
+    async def _async_announce_later(
+        self, session_id: str, satellite_id: str, question: str
+    ) -> None:
         """Wait for the turn to end and announce its answer on the satellite."""
         try:
             await self._client.async_wait(session_id, HANDOFF_TIMEOUT)
@@ -170,11 +190,12 @@ class OpenCodeConversationEntity(
             self._async_interrupt(session_id)
             answer = ""
         self._async_archive(session_id)
+        message = (answer and self._speech(question, answer)) or HANDOFF_FAILED_MESSAGE
         try:
             await self.hass.services.async_call(
                 "assist_satellite",
                 "announce",
-                {"message": answer or HANDOFF_FAILED_MESSAGE},
+                {"message": message},
                 target={"entity_id": satellite_id},
                 blocking=True,
             )
