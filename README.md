@@ -8,7 +8,7 @@ A custom Home Assistant integration that lets your [OpenCode](https://opencode.a
 It needs an OpenCode 2 server Home Assistant can reach, such as the [OpenCode app](https://github.com/timmo001/app-opencode) or OpenCode on another machine. On another machine, have OpenCode listen on the network with `opencode service set hostname 0.0.0.0`, then `opencode service restart`, and allow port 49374 through its firewall.
 
 > [!TIP]
-> On Home Assistant OS, the [OpenCode app](https://github.com/timmo001/app-opencode) runs OpenCode on the same machine, opened from the sidebar. This integration finds the app by itself, and the app pairs Home Assistant for you.
+> On Home Assistant OS, you can also run OpenCode on the same machine with the [OpenCode app](https://github.com/timmo001/app-opencode), opened from the sidebar. This integration finds the app by itself, and the app pairs Home Assistant for you.
 
 This is a community project. It isn't made or endorsed by Anomaly, the makers of OpenCode, or by Home Assistant.
 
