@@ -84,7 +84,7 @@
           },
           "data_description": {
             "agent": "The OpenCode agent that does the task.",
-            "directory": "The folder on the server the session works in. Leave it empty for the server's default.",
+            "directory": "The folder on the server the session works in. Leave it empty for the server's default, which is usually the home folder of the user OpenCode runs as.",
             "model": "The model the session uses. Leave it empty for the agent's default.",
             "name": "Leave it empty to name it after the model and server.",
             "timeout": "How long a task can take before it's stopped.",
@@ -120,7 +120,7 @@
           },
           "data_description": {
             "agent": "The OpenCode agent that answers.",
-            "directory": "The folder on the server the session works in. Leave it empty for the server's default.",
+            "directory": "The folder on the server the session works in. Leave it empty for the server's default, which is usually the home folder of the user OpenCode runs as.",
             "model": "The model the session uses. Leave it empty for the agent's default.",
             "name": "Leave it empty to name it after the model and server.",
             "prompt": "Sent at the start of each conversation. This can be a template.",
