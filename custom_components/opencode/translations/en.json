@@ -7,40 +7,38 @@
     },
     "error": {
       "cannot_connect": "Failed to connect",
-      "invalid_auth": "The server didn't accept the password",
+      "expired_link": "The link has expired or was already used. Make a new one and paste it here.",
+      "invalid_link": "That isn't an OpenCode pairing link. It looks like http://192.168.1.10:49374/auth/connect/…",
       "unknown": "Unexpected error"
     },
     "step": {
       "reauth_confirm": {
         "data": {
-          "password": "Password"
+          "link": "Pairing link"
         },
         "data_description": {
-          "password": "The server password for {url}. Leave it empty if the server has none."
+          "link": "Run `opencode pair` on the server, or press **Pair a device** in the OpenCode app's sidebar, and paste one of the links."
         },
-        "description": "The OpenCode server at {url} no longer accepts the password.",
-        "title": "Re-authenticate"
+        "description": "Home Assistant's pairing with the OpenCode server at {url} has ended, perhaps because its password changed. Pair it again with a new link.",
+        "title": "Pair again"
       },
       "reconfigure": {
         "data": {
-          "password": "Password",
-          "url": "URL"
+          "link": "Pairing link"
         },
         "data_description": {
-          "password": "Leave it empty if the server has no password.",
-          "url": "The address of the OpenCode server, such as http://192.168.1.10:4096."
-        }
+          "link": "Run `opencode pair` on the server, or press **Pair a device** in the OpenCode app's sidebar, and paste one of the links."
+        },
+        "description": "Pair with the OpenCode server at {url} again, or with its new address."
       },
       "user": {
         "data": {
-          "password": "Password",
-          "url": "URL"
+          "link": "Pairing link"
         },
         "data_description": {
-          "password": "The server password, set with OPENCODE_SERVER_PASSWORD or the app's server password option. Leave it empty if the server has none.",
-          "url": "The address of the OpenCode server, such as http://192.168.1.10:4096."
+          "link": "Run `opencode pair` on the server, or press **Pair a device** in the OpenCode app's sidebar, and paste one of the links. Links work once and expire in 5 minutes."
         },
-        "description": "Connect to an OpenCode server so its agents can answer Assist."
+        "description": "Pair with an OpenCode server so its agents can answer Assist. Pick a link with an address Home Assistant can reach, not 127.0.0.1, unless both run on the same machine."
       }
     }
   },
@@ -84,7 +82,7 @@
       "message": "Couldn't reach the OpenCode server"
     },
     "invalid_auth": {
-      "message": "The OpenCode server didn't accept the password"
+      "message": "The OpenCode server no longer accepts Home Assistant's pairing"
     },
     "timeout": {
       "message": "OpenCode took too long to answer"

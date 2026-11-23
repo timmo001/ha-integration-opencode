@@ -3,12 +3,12 @@
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.const import CONF_PASSWORD
+from homeassistant.const import CONF_TOKEN
 from homeassistant.core import HomeAssistant
 
 from . import OpenCodeConfigEntry
 
-TO_REDACT = {CONF_PASSWORD}
+TO_REDACT = {CONF_TOKEN}
 
 
 async def async_get_config_entry_diagnostics(

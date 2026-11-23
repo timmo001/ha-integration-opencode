@@ -23,6 +23,7 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 
 ## Server behaviour
 
+- Home Assistant pairs with a server from a one-time `opencode pair` link: it redeems the code at `/auth/connect/{code}` for a token and sends it as the Basic auth password. Paired tokens last 30 days, so the entry swaps its token for a new one every week, without reloading. A refused token starts reauth, which asks for a new link.
 - Sessions deny the `question` permission when created. Other permission requests are rejected and forms cancelled, since nobody can answer them from a speaker.
 - A prompt to a session that's gone (404) or can't take it (409) starts a new session. If the event stream drops mid-turn, the entity waits on `/api/experimental/session/{id}/wait` and reads the last message instead.
 - Sessions are archived, not deleted, when Assist forgets the conversation.

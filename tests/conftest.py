@@ -3,19 +3,21 @@
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.const import CONF_PASSWORD, CONF_PROMPT, CONF_TIMEOUT, CONF_URL
+from homeassistant.const import CONF_PROMPT, CONF_TIMEOUT, CONF_TOKEN, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import llm
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.opencode.api import OpenCodeEvent
-from custom_components.opencode.const import CONF_AGENT, DOMAIN
+from custom_components.opencode.const import CONF_AGENT, CONF_RENEWED_AT, DOMAIN
 
-URL = "http://opencode.local:4096"
+URL = "http://opencode.local:49374"
+LINK = f"{URL}/auth/connect/abc123"
 
 AGENTS = [
     {"id": "build", "name": "build", "mode": "primary", "hidden": False},
@@ -53,6 +55,9 @@ class FakeOpenCode:
         self.prompts: list[tuple[str, str]] = []
         self.last_text = ""
         self.async_get_info = AsyncMock(return_value={"version": "2.4.0"})
+        self.async_redeem = AsyncMock(return_value="paired-token")
+        self.async_renew_token = AsyncMock(return_value="renewed-token")
+        self.set_token = MagicMock()
         self.async_get_agents = AsyncMock(return_value=AGENTS)
         self.async_get_models = AsyncMock(return_value=MODELS)
         self.async_create_session = AsyncMock(side_effect=self._create_session)
@@ -127,7 +132,11 @@ def mock_config_entry() -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
         title=URL,
-        data={CONF_URL: URL, CONF_PASSWORD: "secret"},
+        data={
+            CONF_URL: URL,
+            CONF_TOKEN: "token",
+            CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+        },
         subentries_data=[
             {
                 "subentry_type": "conversation",

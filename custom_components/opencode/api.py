@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 import aiohttp
+from yarl import URL
 
 from .const import REQUEST_TIMEOUT
 
@@ -17,7 +18,7 @@ class OpenCodeError(Exception):
 
 
 class OpenCodeAuthError(OpenCodeError):
-    """The OpenCode server refused the password."""
+    """The OpenCode server refused the token or pairing code."""
 
 
 class OpenCodeConnectionError(OpenCodeError):
@@ -44,19 +45,56 @@ class OpenCodeEvent:
     data: dict[str, Any]
 
 
+def parse_pairing_link(link: str) -> tuple[str, str]:
+    """Split a pairing link into the server's address and its one-time code."""
+    url = URL(link.strip())
+    base, separator, code = url.path.partition("/auth/connect/")
+    if (
+        url.scheme not in ("http", "https")
+        or not url.host
+        or not separator
+        or not code
+        or "/" in code
+    ):
+        raise ValueError(link)
+    return str(url.with_path(base).with_query(None).with_fragment(None)).rstrip(
+        "/"
+    ), code
+
+
 class OpenCodeClient:
     """Talk to one OpenCode server."""
 
     def __init__(
-        self, session: aiohttp.ClientSession, url: str, password: str | None
+        self, session: aiohttp.ClientSession, url: str, token: str | None
     ) -> None:
         """Initialize the client."""
         self._session = session
         self._url = url.rstrip("/")
         self._headers: dict[str, str] = {}
-        if password:
-            token = base64.b64encode(f"opencode:{password}".encode()).decode()
-            self._headers["Authorization"] = f"Basic {token}"
+        if token:
+            self.set_token(token)
+
+    def set_token(self, token: str) -> None:
+        """Use a paired token, which the server takes as its password."""
+        basic = base64.b64encode(f"opencode:{token}".encode()).decode()
+        self._headers["Authorization"] = f"Basic {basic}"
+
+    async def async_redeem(self, code: str) -> str:
+        """Trade a one-time pairing code for a token, without using it yet."""
+        result = await self._async_request(
+            "GET",
+            f"/auth/connect/{code}",
+            headers={"Accept": "application/json"},
+        )
+        return result["token"]
+
+    async def async_renew_token(self) -> str:
+        """Pair again with the current token, switch to the new one and return it."""
+        code = (await self._async_request("POST", "/api/pair"))["code"]
+        token = await self.async_redeem(code)
+        self.set_token(token)
+        return token
 
     async def async_get_info(self) -> dict[str, Any]:
         """Return the server's version and identity."""
@@ -181,10 +219,11 @@ class OpenCodeClient:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
         timeout: aiohttp.ClientTimeout | None = None,
     ) -> Any:
         response = await self._async_send(
-            method, path, json=json, params=params, timeout=timeout
+            method, path, json=json, params=params, headers=headers, timeout=timeout
         )
         async with response:
             if response.status == 204:
@@ -201,13 +240,14 @@ class OpenCodeClient:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, str] | list[tuple[str, str]] | None = None,
+        headers: dict[str, str] | None = None,
         timeout: aiohttp.ClientTimeout | None = None,
     ) -> aiohttp.ClientResponse:
         try:
             response = await self._session.request(
                 method,
                 f"{self._url}{path}",
-                headers=self._headers,
+                headers={**self._headers, **(headers or {})},
                 json=json,
                 params=params,
                 timeout=timeout or aiohttp.ClientTimeout(total=REQUEST_TIMEOUT),

@@ -5,7 +5,7 @@ A custom Home Assistant integration that lets your [OpenCode](https://opencode.a
 > [!WARNING]
 > This integration is experimental, breaking changes may occur. No support will be given
 
-It needs an OpenCode 2 server Home Assistant can reach, such as the OpenCode app or `opencode serve` on another machine.
+It needs an OpenCode 2 server Home Assistant can reach, such as the OpenCode app or OpenCode on another machine. On another machine, have OpenCode listen on the network with `opencode service set hostname 0.0.0.0`, then `opencode service restart`, and allow port 49374 through its firewall.
 
 This is a community project. It isn't made or endorsed by Anomaly, the makers of OpenCode, or by Home Assistant.
 
@@ -36,7 +36,7 @@ Since this integration is not yet in the default HACS store, you need to add it 
 ## Setup
 
 1. Go to **Settings** > **Devices & services** > **Add integration** and pick **OpenCode**
-2. Enter the server's URL, such as `http://192.168.1.10:4096`, and its password if it has one
+2. On the server, run `opencode pair`, or press **Pair a device** in the OpenCode app's sidebar, and paste one of its links, such as `http://192.168.1.10:49374/auth/connect/…`. Links work once and expire in 5 minutes. Home Assistant keeps the token the link gives it and renews it every week, so there's no password to enter
 3. An agent called "OpenCode conversation" is added with the server's `build` agent and default model. Open it to pick another agent, model or variant, or use **Add conversation agent** for more
 4. Go to **Settings** > **Voice assistants** and pick the agent as an assistant's conversation agent
 

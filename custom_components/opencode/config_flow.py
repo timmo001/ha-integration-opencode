@@ -13,9 +13,9 @@ from homeassistant.config_entries import (
 from homeassistant.const import (
     CONF_MODEL,
     CONF_NAME,
-    CONF_PASSWORD,
     CONF_PROMPT,
     CONF_TIMEOUT,
+    CONF_TOKEN,
     CONF_URL,
 )
 from homeassistant.core import callback
@@ -34,13 +34,21 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.util import dt as dt_util
 import probatio
 
 from . import OpenCodeConfigEntry
-from .api import OpenCodeAuthError, OpenCodeClient, OpenCodeError
+from .api import (
+    OpenCodeAuthError,
+    OpenCodeClient,
+    OpenCodeError,
+    parse_pairing_link,
+)
 from .const import (
     CONF_AGENT,
     CONF_DIRECTORY,
+    CONF_LINK,
+    CONF_RENEWED_AT,
     CONF_VARIANT,
     DEFAULT_AGENT,
     DEFAULT_CONVERSATION_NAME,
@@ -51,21 +59,10 @@ from .const import (
     MIN_TIMEOUT,
 )
 
-STEP_USER_DATA_SCHEMA = probatio.Schema(
+STEP_LINK_DATA_SCHEMA = probatio.Schema(
     {
-        probatio.Required(CONF_URL): TextSelector(
+        probatio.Required(CONF_LINK): TextSelector(
             TextSelectorConfig(type=TextSelectorType.URL)
-        ),
-        probatio.Optional(CONF_PASSWORD): TextSelector(
-            TextSelectorConfig(type=TextSelectorType.PASSWORD)
-        ),
-    }
-)
-
-STEP_REAUTH_DATA_SCHEMA = probatio.Schema(
-    {
-        probatio.Optional(CONF_PASSWORD): TextSelector(
-            TextSelectorConfig(type=TextSelectorType.PASSWORD)
         ),
     }
 )
@@ -82,36 +79,45 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def _async_validate(self, url: str, password: str | None) -> dict[str, str]:
-        """Check the server answers and accepts the password."""
-        client = OpenCodeClient(async_get_clientsession(self.hass), url, password)
+    async def _async_pair(
+        self, link: str, current_url: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        """Redeem a pairing link, returning the entry data or the form errors."""
         try:
+            url, code = parse_pairing_link(link)
+        except ValueError:
+            return {}, {CONF_LINK: "invalid_link"}
+        if url != current_url:
+            self._async_abort_entries_match({CONF_URL: url})
+        client = OpenCodeClient(async_get_clientsession(self.hass), url, None)
+        try:
+            token = await client.async_redeem(code)
+            client.set_token(token)
             await client.async_get_agents()
         except OpenCodeAuthError:
-            return {"base": "invalid_auth"}
+            return {}, {CONF_LINK: "expired_link"}
         except OpenCodeError:
-            return {"base": "cannot_connect"}
+            return {}, {"base": "cannot_connect"}
         except Exception:
             LOGGER.exception("Unexpected exception")
-            return {"base": "unknown"}
-        return {}
+            return {}, {"base": "unknown"}
+        return {
+            CONF_URL: url,
+            CONF_TOKEN: token,
+            CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+        }, {}
 
     @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step."""
+        """Pair with a server from a link it printed."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            url = user_input[CONF_URL].strip().rstrip("/")
-            password = user_input.get(CONF_PASSWORD)
-            self._async_abort_entries_match({CONF_URL: url})
-            if not (errors := await self._async_validate(url, password)):
-                data = {CONF_URL: url}
-                if password:
-                    data[CONF_PASSWORD] = password
+            data, errors = await self._async_pair(user_input[CONF_LINK])
+            if not errors:
                 return self.async_create_entry(
-                    title=url,
+                    title=data[CONF_URL],
                     data=data,
                     subentries=[
                         {
@@ -124,38 +130,33 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_USER_DATA_SCHEMA, user_input
-            ),
-            errors=errors,
+            step_id="user", data_schema=STEP_LINK_DATA_SCHEMA, errors=errors
         )
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
-        """Handle a password the server no longer accepts."""
+        """Handle a token the server no longer accepts."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Ask for the new password."""
+        """Pair again with a new link."""
         errors: dict[str, str] = {}
         entry = self._get_reauth_entry()
         if user_input is not None:
-            password = user_input.get(CONF_PASSWORD)
-            if not (
-                errors := await self._async_validate(entry.data[CONF_URL], password)
-            ):
-                data = {CONF_URL: entry.data[CONF_URL]}
-                if password:
-                    data[CONF_PASSWORD] = password
-                return self.async_update_reload_and_abort(entry, data=data)
+            data, errors = await self._async_pair(
+                user_input[CONF_LINK], entry.data[CONF_URL]
+            )
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry, title=data[CONF_URL], data=data
+                )
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=STEP_REAUTH_DATA_SCHEMA,
+            data_schema=STEP_LINK_DATA_SCHEMA,
             description_placeholders={CONF_URL: entry.data[CONF_URL]},
             errors=errors,
         )
@@ -163,25 +164,22 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Change the server's address or password."""
+        """Pair again, such as when the server's address changes."""
         errors: dict[str, str] = {}
         entry = self._get_reconfigure_entry()
         if user_input is not None:
-            url = user_input[CONF_URL].strip().rstrip("/")
-            password = user_input.get(CONF_PASSWORD)
-            if url != entry.data[CONF_URL]:
-                self._async_abort_entries_match({CONF_URL: url})
-            if not (errors := await self._async_validate(url, password)):
-                data = {CONF_URL: url}
-                if password:
-                    data[CONF_PASSWORD] = password
-                return self.async_update_reload_and_abort(entry, title=url, data=data)
+            data, errors = await self._async_pair(
+                user_input[CONF_LINK], entry.data[CONF_URL]
+            )
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry, title=data[CONF_URL], data=data
+                )
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_USER_DATA_SCHEMA, user_input or {CONF_URL: entry.data[CONF_URL]}
-            ),
+            data_schema=STEP_LINK_DATA_SCHEMA,
+            description_placeholders={CONF_URL: entry.data[CONF_URL]},
             errors=errors,
         )
 
