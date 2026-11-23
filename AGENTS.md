@@ -9,6 +9,7 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 - `custom_components/opencode/entity.py`: the base both entities share: creating sessions, streaming an answer, its timeout and fallbacks
 - `custom_components/opencode/conversation.py`: the conversation entity, its session map and locks, and handing a slow answer off to announce later
 - `custom_components/opencode/ai_task.py`: the AI task entity, one session per task, with structured output as JSON
+- `custom_components/opencode/mcp.py`: serving Home Assistant's LLM APIs to OpenCode sessions as an MCP server over the client MCP socket
 - `custom_components/opencode/speech.py`: cleaning Markdown answers into plain text for a voice satellite, a line at a time
 - `tests/`: pytest with `pytest-homeassistant-custom-component`, against a fake client
 
@@ -28,6 +29,7 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 
 - Home Assistant pairs with a server from a one-time `opencode pair` link: it redeems the code at `/auth/connect/{code}` for a token and sends it as the Basic auth password. Paired tokens last 30 days, so the entry swaps its token for a new one every week, without reloading. A refused token starts reauth, which asks for a new link.
 - Sessions deny the `question` permission when created. Other permission requests are rejected and forms cancelled, since nobody can answer them from a speaker.
+- For agents with **Control Home Assistant** (`llm_hass_api`), the entry opens one `/api/experimental/client-mcp?name=homeassistant` WebSocket per directory and answers MCP JSON-RPC over it. OpenCode offers the tools to every session in that directory as `homeassistant_*`, so the agent's sessions allow `homeassistant_*` when created, and each call is answered with the API instance of its session's latest turn (from `_meta["ai.opencode/sessionID"]`). Calls from any other session are refused.
 - A prompt to a session that's gone (404) or can't take it (409) starts a new session. If the event stream drops mid-turn, the entity waits on `/api/experimental/session/{id}/wait` and reads the last message instead.
 - A turn still running at the Timeout is interrupted, unless a voice satellite asked: then the answer says so, and a background task waits on `/wait` and announces the last message with `assist_satellite.announce`.
 - On a voice satellite, the first prompt asks for plain speech with anything bigger after a `[full answer]` line. The entity strips Markdown from what's spoken and, when it leaves something out, saves the answer as written as a persistent notification.

@@ -112,6 +112,7 @@
           "data": {
             "agent": "Agent",
             "directory": "Directory",
+            "llm_hass_api": "Control Home Assistant",
             "model": "Model",
             "name": "Name",
             "prompt": "Instructions",
@@ -121,6 +122,7 @@
           "data_description": {
             "agent": "The OpenCode agent that answers.",
             "directory": "The folder on the server the session works in. Leave it empty for the server's default, which is usually the home folder of the user OpenCode runs as.",
+            "llm_hass_api": "Home Assistant's tools the agent can use, alongside its own. Other sessions in the same directory on the server can see them, but can't use them.",
             "model": "The model the session uses. Leave it empty for the agent's default.",
             "name": "Leave it empty to name it after the model and server.",
             "prompt": "Sent at the start of each conversation. This can be a template.",

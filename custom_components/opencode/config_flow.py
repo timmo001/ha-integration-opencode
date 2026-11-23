@@ -13,6 +13,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import (
     CONF_HOST,
+    CONF_LLM_HASS_API,
     CONF_MODEL,
     CONF_NAME,
     CONF_PORT,
@@ -74,6 +75,7 @@ STEP_LINK_DATA_SCHEMA = probatio.Schema(
 
 DEFAULT_CONVERSATION_OPTIONS = {
     CONF_AGENT: DEFAULT_AGENT,
+    CONF_LLM_HASS_API: [llm.LLM_API_ASSIST],
     CONF_PROMPT: llm.DEFAULT_INSTRUCTIONS_PROMPT,
     CONF_TIMEOUT: DEFAULT_TIMEOUT,
 }
@@ -539,6 +541,28 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
                     description={"suggested_value": options.get(CONF_PROMPT)},
                 )
             ] = TemplateSelector()
+            apis = llm.async_get_apis(self.hass)
+            known_apis = {api.id for api in apis}
+            schema[
+                probatio.Optional(
+                    CONF_LLM_HASS_API,
+                    description={
+                        "suggested_value": [
+                            api
+                            for api in options.get(CONF_LLM_HASS_API) or []
+                            if api in known_apis
+                        ]
+                    },
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=api.id, label=api.name) for api in apis
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            )
         schema.update(
             {
                 probatio.Required(

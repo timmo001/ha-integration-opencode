@@ -212,6 +212,37 @@ class OpenCodeClient:
         finally:
             response.close()
 
+    @asynccontextmanager
+    async def async_client_mcp(
+        self, name: str, directory: str | None
+    ) -> AsyncIterator[aiohttp.ClientWebSocketResponse]:
+        """Open a socket the server uses as an MCP client of ours.
+
+        Sessions in the directory, or the server's default without one, get
+        the tools we answer with as `<name>_<tool>`.
+        """
+        params = {"name": name}
+        if directory:
+            params["location[directory]"] = directory
+        try:
+            socket = await self._session.ws_connect(
+                f"{self._url}/api/experimental/client-mcp",
+                params=params,
+                headers=self._headers,
+                heartbeat=30,
+                timeout=aiohttp.ClientWSTimeout(ws_close=REQUEST_TIMEOUT),
+            )
+        except aiohttp.WSServerHandshakeError as err:
+            if err.status in (401, 403):
+                raise OpenCodeAuthError from err
+            raise OpenCodeConnectionError(str(err)) from err
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise OpenCodeConnectionError(str(err)) from err
+        try:
+            yield socket
+        finally:
+            await socket.close()
+
     async def _async_request(
         self,
         method: str,

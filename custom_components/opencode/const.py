@@ -55,6 +55,15 @@ SPEECH_PROMPT = (
 )
 FULL_ANSWER_MESSAGE = "I've put the full answer in your notifications."
 
+# OpenCode offers a client MCP server's tools to sessions as `<name>_<tool>`
+MCP_SERVER_NAME = "homeassistant"
+# Sent with the first message when the agent has Home Assistant's tools
+TOOLS_PROMPT = (
+    "Home Assistant's tools come from the MCP server named homeassistant, as"
+    " the tools named homeassistant_*. Use them first to see or control the"
+    " home, before any other tool."
+)
+
 PERMISSION_REJECT_MESSAGE = (
     "This question came from a Home Assistant voice assistant, "
     "where nobody can approve this. Answer without it."

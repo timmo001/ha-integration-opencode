@@ -3,9 +3,11 @@
 import asyncio
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 from homeassistant.const import CONF_PROMPT, CONF_TIMEOUT, CONF_TOKEN, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import llm
@@ -84,11 +86,51 @@ async def setup_homeassistant(hass: HomeAssistant) -> None:
     assert await async_setup_component(hass, "homeassistant", {})
 
 
+class FakeSocket:
+    """The client MCP socket, with requests the test sends as OpenCode."""
+
+    def __init__(self, name: str, directory: str | None) -> None:
+        """Initialize the socket."""
+        self.name = name
+        self.directory = directory
+        self.closed = False
+        self.sent: list[dict[str, Any]] = []
+        self._requests: asyncio.Queue[aiohttp.WSMessage] = asyncio.Queue()
+        self._replied = asyncio.Event()
+
+    def __aiter__(self) -> AsyncIterator[aiohttp.WSMessage]:
+        """Iterate over the requests."""
+        return self
+
+    async def __anext__(self) -> aiohttp.WSMessage:
+        """Return the next request."""
+        return await self._requests.get()
+
+    async def send_json(self, data: dict[str, Any]) -> None:
+        """Record a reply."""
+        self.sent.append(data)
+        self._replied.set()
+
+    async def request(self, request_id: int, method: str, **params: Any) -> Any:
+        """Send a request as OpenCode and return its reply."""
+        message = {"jsonrpc": "2.0", "id": request_id, "method": method}
+        if params:
+            message["params"] = params
+        self._requests.put_nowait(
+            aiohttp.WSMessage(aiohttp.WSMsgType.TEXT, json.dumps(message), None)
+        )
+        while not any(reply["id"] == request_id for reply in self.sent):
+            self._replied.clear()
+            await self._replied.wait()
+        return next(reply for reply in self.sent if reply["id"] == request_id)
+
+
 class FakeOpenCode:
     """An OpenCode server that answers prompts with scripted events."""
 
     def __init__(self) -> None:
         """Initialize the fake."""
+        self.sockets: list[FakeSocket] = []
         self.turns: list[list[OpenCodeEvent]] = []
         self.sessions: list[str] = []
         self.prompts: list[tuple[str, str]] = []
@@ -142,6 +184,18 @@ class FakeOpenCode:
                 yield event
 
         yield events()
+
+    @asynccontextmanager
+    async def async_client_mcp(
+        self, name: str, directory: str | None
+    ) -> AsyncIterator[FakeSocket]:
+        """Open a client MCP socket."""
+        socket = FakeSocket(name, directory)
+        self.sockets.append(socket)
+        try:
+            yield socket
+        finally:
+            socket.closed = True
 
 
 def slow_turn(*deltas: str) -> list[OpenCodeEvent]:

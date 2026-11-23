@@ -1,25 +1,28 @@
 """The OpenCode integration."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_TOKEN, CONF_URL, Platform
+from homeassistant.const import CONF_LLM_HASS_API, CONF_TOKEN, CONF_URL, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import llm
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .api import OpenCodeAuthError, OpenCodeClient, OpenCodeError
 from .const import (
+    CONF_DIRECTORY,
     CONF_RENEWED_AT,
     DOMAIN,
     LOGGER,
     TOKEN_CHECK_INTERVAL,
     TOKEN_RENEW_AFTER,
 )
+from .mcp import HomeAssistantTools
 
 PLATFORMS = (Platform.AI_TASK, Platform.CONVERSATION)
 
@@ -33,9 +36,24 @@ class OpenCodeData:
     # Compared by the update listener, so a renewed token doesn't reload
     data: dict[str, Any]
     subentries: dict[str, tuple[str, dict[str, Any]]]
+    # Each session that can use Home Assistant's tools, with its latest turn's API
+    tool_sessions: dict[str, llm.APIInstance] = field(default_factory=dict)
 
 
 type OpenCodeConfigEntry = ConfigEntry[OpenCodeData]
+
+
+def _tool_apis(entry: OpenCodeConfigEntry) -> dict[str | None, list[str]]:
+    """Return the APIs the agents in each directory use, to serve there."""
+    directories: dict[str | None, list[str]] = {}
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != "conversation":
+            continue
+        apis = directories.setdefault(subentry.data.get(CONF_DIRECTORY) or None, [])
+        apis.extend(
+            api for api in subentry.data.get(CONF_LLM_HASS_API) or [] if api not in apis
+        )
+    return {directory: apis for directory, apis in directories.items() if apis}
 
 
 def _subentries(entry: OpenCodeConfigEntry) -> dict[str, tuple[str, dict[str, Any]]]:
@@ -79,6 +97,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenCodeConfigEntry) -> 
         async_track_time_interval(hass, async_check_token, TOKEN_CHECK_INTERVAL)
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    for directory, api_ids in _tool_apis(entry).items():
+        tools = HomeAssistantTools(
+            hass, client, directory, api_ids, entry.runtime_data.tool_sessions
+        )
+        entry.async_create_background_task(
+            hass, tools.async_run(), f"{DOMAIN} tools in {directory or 'default'}"
+        )
     entry.async_on_unload(entry.add_update_listener(async_update_options))
     return True
 

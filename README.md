@@ -63,12 +63,18 @@ Add a second server, such as a more powerful machine, as another entry, and use 
 - The answer streams back as the agent writes it, so a voice satellite can start speaking early.
 - Asked on a voice satellite, an answer that takes longer than the agent's Timeout doesn't hold up the satellite. It says "On it, I'll tell you when it's done", and announces the answer once OpenCode finishes, up to 10 minutes later. Typed in Assist, OpenCode is stopped at the Timeout instead.
 - On a voice satellite, the agent is told it's being heard, and to keep anything bigger than a few sentences, such as code, a table or a document, after the spoken answer. What the speaker reads is plain text: Markdown is stripped whatever the model writes. When something is left out, the answer as written is saved as a notification, and the speaker says so. Typed in Assist, the answer shows as written.
-- Nobody can approve anything from a speaker, so the session can't ask questions, and any permission it asks for is refused with a note saying why.
+- Nobody can approve anything from a speaker, so the session can't ask questions, and any permission it asks for is refused with a note saying why. Home Assistant's own tools are the exception: they're allowed without asking.
 - What OpenCode thinks and every tool it calls, with the result, are added to the conversation, so they show in the Assist dialog and in each voice assistant's debug view, as they do for Home Assistant's own AI integrations. They're shown, not spoken.
 
 ### Home Assistant's tools
 
-The OpenCode agent uses its own tools and MCP servers, not Home Assistant's Assist API, so it can't see or control your home by itself. Home Assistant's [Model Context Protocol Server](https://www.home-assistant.io/integrations/mcp_server/) gives it the same tools Home Assistant's own AI integrations use, limited to the entities you expose to Assist:
+An agent with **Control Home Assistant** set can see and control your home with the same tools Home Assistant's own AI integrations use, limited to the entities you expose to Assist. New agents have Assist picked; an agent added before needs **Reconfigure** to turn it on. Home Assistant hands the tools to OpenCode over a connection of its own, so there's nothing to set up on the server. It needs OpenCode 2.3.2 or later.
+
+- The agent keeps its own tools and MCP servers alongside them, such as one with your home's history, and is told to use Home Assistant's first. With OpenCode's Code Mode, they're under `tools.homeassistant`.
+- Tool calls act with the same context as the conversation, so "turn on the lights" from a satellite means the lights in its area.
+- OpenCode lists the tools, as `homeassistant_*`, in every session in the agent's Directory on the server, not only Home Assistant's. Only sessions Home Assistant started can use them: anything else that calls one is refused. To keep them out of your own sessions' tool lists, give the agent a Directory you don't work in.
+
+To use Home Assistant's tools from your own OpenCode sessions as well, add Home Assistant's [Model Context Protocol Server](https://www.home-assistant.io/integrations/mcp_server/):
 
 1. Add the **Model Context Protocol Server** integration in Home Assistant
 
@@ -82,19 +88,18 @@ The OpenCode agent uses its own tools and MCP servers, not Home Assistant's Assi
 
 3. Open OpenCode, run `/mcps`, pick `home-assistant` and sign in to Home Assistant in the browser
 
-Any other MCP servers the agent has, such as one with your home's history, stay available alongside it.
-
 ### AI tasks
 
 An AI task lets automations and scripts hand OpenCode work with the **AI Task: Generate data** action (`ai_task.generate_data`). Each task runs in a session of its own, archived when it's done. Give the action a structure and OpenCode answers with data in that shape, such as a list of rooms. AI tasks have the same options as agents, without Instructions, and a Timeout of 10 minutes by default.
 
 ## Options
 
-| Option       | What it does                                                                                                                         |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Agent        | The OpenCode agent that answers                                                                                                      |
-| Model        | The model the session uses. Empty uses the agent's default                                                                           |
-| Variant      | The model's effort variant, such as `high`. Empty uses the default                                                                   |
-| Directory    | The folder on the server the session works in. Empty uses the server's default, usually the home folder of the user OpenCode runs as |
-| Instructions | Sent at the start of each conversation. A template, like other Assist agents                                                         |
-| Timeout      | How long to wait for an answer. On a voice satellite, a slower one is announced when it's done                                       |
+| Option                 | What it does                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Agent                  | The OpenCode agent that answers                                                                                                      |
+| Model                  | The model the session uses. Empty uses the agent's default                                                                           |
+| Variant                | The model's effort variant, such as `high`. Empty uses the default                                                                   |
+| Directory              | The folder on the server the session works in. Empty uses the server's default, usually the home folder of the user OpenCode runs as |
+| Instructions           | Sent at the start of each conversation. A template, like other Assist agents                                                         |
+| Control Home Assistant | Home Assistant's tools the agent can use, such as Assist. Agents only                                                                |
+| Timeout                | How long to wait for an answer. On a voice satellite, a slower one is announced when it's done                                       |

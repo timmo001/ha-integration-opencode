@@ -7,10 +7,10 @@ from typing import Literal, override
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.const import CONF_PROMPT, MATCH_ALL
+from homeassistant.const import CONF_LLM_HASS_API, CONF_PROMPT, MATCH_ALL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import chat_session
+from homeassistant.helpers import chat_session, llm
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import OpenCodeConfigEntry
@@ -21,6 +21,7 @@ from .const import (
     HANDOFF_TIMEOUT,
     LOGGER,
     SPEECH_PROMPT,
+    TOOLS_PROMPT,
 )
 from .entity import OpenCodeBaseEntity
 
@@ -90,7 +91,7 @@ class OpenCodeConversationEntity(
         try:
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
-                None,
+                self.subentry.data.get(CONF_LLM_HASS_API),
                 self.subentry.data.get(CONF_PROMPT),
                 user_input.extra_system_prompt,
             )
@@ -115,6 +116,7 @@ class OpenCodeConversationEntity(
                     chat_log.content[0].content,
                     chat_log.extra_system_prompt,
                     user_input.text,
+                    chat_log.llm_api,
                     spoken=satellite_id is not None,
                 ),
                 (
@@ -138,6 +140,7 @@ class OpenCodeConversationEntity(
         instructions: str,
         extra_system_prompt: str | None,
         text: str,
+        llm_api: llm.APIInstance | None,
         *,
         spoken: bool,
     ) -> str:
@@ -149,16 +152,24 @@ class OpenCodeConversationEntity(
             ):
                 # A caller, such as an automation, added a prompt mid-conversation
                 prompt = f"{extra_system_prompt}\n\n{text}"
+            if llm_api:
+                self._async_use_tools(session_id, llm_api)
             try:
                 await self._client.async_prompt(session_id, prompt)
             except OpenCodeNotFoundError, OpenCodeConflictError:
                 LOGGER.debug("Session %s is gone, starting another", session_id)
+                self.entry.runtime_data.tool_sessions.pop(session_id, None)
             else:
                 self._extra_prompts[conversation_id] = extra_system_prompt
                 return session_id
 
-        session_id = await self._async_create_session(self.subentry.title)
+        session_id = await self._async_create_session(
+            self.subentry.title, tools=llm_api is not None
+        )
         self._sessions[conversation_id] = session_id
+        if llm_api:
+            self._async_use_tools(session_id, llm_api)
+            instructions = f"{instructions}\n\n{TOOLS_PROMPT}"
         if spoken:
             instructions = f"{instructions}\n\n{SPEECH_PROMPT}"
         await self._client.async_prompt(session_id, f"{instructions}\n\n{text}")

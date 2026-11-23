@@ -7,6 +7,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import SOURCE_HASSIO, SOURCE_USER, ConfigEntryState
 from homeassistant.const import (
     CONF_HOST,
+    CONF_LLM_HASS_API,
     CONF_MODEL,
     CONF_NAME,
     CONF_PORT,
@@ -127,6 +128,7 @@ async def test_user_flow(
             "Claude Haiku 5.5 (opencode-server)",
             {
                 CONF_AGENT: "build",
+                CONF_LLM_HASS_API: [llm.LLM_API_ASSIST],
                 CONF_MODEL: "github-copilot/claude-haiku-5.5",
                 CONF_PROMPT: llm.DEFAULT_INSTRUCTIONS_PROMPT,
                 CONF_TIMEOUT: 60,

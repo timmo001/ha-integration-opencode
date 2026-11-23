@@ -37,12 +37,19 @@ from .const import (
     FULL_ANSWER_MESSAGE,
     HANDOFF_MESSAGE,
     LOGGER,
+    MCP_SERVER_NAME,
     PERMISSION_REJECT_MESSAGE,
 )
 from .speech import SpeechCleaner, full_answer, to_speech
 
 # Nobody can answer the question tool from a voice assistant or an automation
 SESSION_PERMISSIONS = [{"action": "question", "resource": "*", "effect": "deny"}]
+# Home Assistant's own tools, which it checks for itself, need no asking
+TOOLS_PERMISSION = {
+    "action": f"{MCP_SERVER_NAME}_*",
+    "resource": "*",
+    "effect": "allow",
+}
 
 
 class OpenCodeBaseEntity(Entity):
@@ -71,8 +78,11 @@ class OpenCodeBaseEntity(Entity):
         """Return how long to wait for an answer."""
         return self.subentry.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
-    async def _async_create_session(self, title: str) -> str:
-        """Create a session with this entity's options."""
+    async def _async_create_session(self, title: str, *, tools: bool = False) -> str:
+        """Create a session with this entity's options.
+
+        With `tools`, it can use Home Assistant's tools without asking.
+        """
         options = self.subentry.data
         model = None
         if model_ref := options.get(CONF_MODEL):
@@ -85,8 +95,15 @@ class OpenCodeBaseEntity(Entity):
             agent=options.get(CONF_AGENT, DEFAULT_AGENT),
             model=model,
             directory=options.get(CONF_DIRECTORY),
-            permissions=SESSION_PERMISSIONS,
+            permissions=[*SESSION_PERMISSIONS, TOOLS_PERMISSION]
+            if tools
+            else SESSION_PERMISSIONS,
         )
+
+    @callback
+    def _async_use_tools(self, session_id: str, llm_api: llm.APIInstance) -> None:
+        """Answer the session's tool calls with this turn's API."""
+        self.entry.runtime_data.tool_sessions[session_id] = llm_api
 
     async def _async_answer(
         self,
@@ -293,6 +310,7 @@ class OpenCodeBaseEntity(Entity):
 
     @callback
     def _async_archive(self, session_id: str) -> None:
+        self.entry.runtime_data.tool_sessions.pop(session_id, None)
         # Not tied to the entry, so unloading doesn't cancel it
         self.hass.async_create_background_task(
             _async_ignore_errors(self._client.async_archive(session_id)),
