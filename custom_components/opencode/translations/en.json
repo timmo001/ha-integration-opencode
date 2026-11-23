@@ -2,6 +2,7 @@
   "config": {
     "abort": {
       "already_configured": "This OpenCode server is already set up",
+      "app_pairing_expired": "The OpenCode app's pairing has expired. Restart the app to offer it again.",
       "reauth_successful": "Re-authentication was successful",
       "reconfigure_successful": "Re-configuration was successful"
     },
@@ -11,7 +12,21 @@
       "invalid_link": "That isn't an OpenCode pairing link. It looks like http://192.168.1.10:49374/auth/connect/…",
       "unknown": "Unexpected error"
     },
+    "flow_title": "{name}",
     "step": {
+      "hassio_confirm": {
+        "description": "Add the {app} app's agents to Assist? The app has paired Home Assistant already."
+      },
+      "model": {
+        "data": {
+          "model": "Model"
+        },
+        "data_description": {
+          "model": "A small, fast model keeps spoken answers quick. Leave it empty for the agent's default. You can change it later with **Reconfigure** on the agent."
+        },
+        "description": "Pick the model that answers Assist.",
+        "title": "Model"
+      },
       "reauth_confirm": {
         "data": {
           "link": "Pairing link"
@@ -50,6 +65,9 @@
         "reconfigure_successful": "Re-configuration was successful"
       },
       "entry_type": "Conversation agent",
+      "error": {
+        "unsupported_variant": "The model you picked doesn't have this variant. Pick another, or leave it empty."
+      },
       "initiate_flow": {
         "reconfigure": "Reconfigure conversation agent",
         "user": "Add conversation agent"
@@ -71,7 +89,7 @@
             "model": "The model the session uses. Leave it empty for the agent's default.",
             "prompt": "Sent at the start of each conversation. This can be a template.",
             "timeout": "How long to wait for an answer before giving up.",
-            "variant": "The model's effort variant, such as high. Leave it empty for the default."
+            "variant": "How hard the model thinks, such as high. Leave it empty for the model's default."
           }
         }
       }

@@ -1,12 +1,15 @@
 """Tests for the OpenCode config flow."""
 
 import re
+from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_HASSIO, SOURCE_USER, ConfigEntryState
 from homeassistant.const import (
+    CONF_HOST,
     CONF_MODEL,
     CONF_NAME,
+    CONF_PORT,
     CONF_PROMPT,
     CONF_TIMEOUT,
     CONF_TOKEN,
@@ -14,6 +17,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -23,6 +27,7 @@ from custom_components.opencode.api import (
     OpenCodeConnectionError,
     parse_pairing_link,
 )
+from custom_components.opencode.config_flow import suggest_small_model
 from custom_components.opencode.const import (
     CONF_AGENT,
     CONF_DIRECTORY,
@@ -32,7 +37,23 @@ from custom_components.opencode.const import (
     DOMAIN,
 )
 
-from .conftest import LINK, URL, FakeOpenCode
+from .conftest import LINK, MODELS, SMALL_MODEL, URL, FakeOpenCode
+
+APP_URL = "http://a0d7b954-opencode:49374"
+HASSIO_DISCOVERY = HassioServiceInfo(
+    config={CONF_HOST: "a0d7b954-opencode", CONF_PORT: 49374, CONF_TOKEN: "app-token"},
+    name="OpenCode",
+    slug="a0d7b954_opencode",
+    uuid="1234",
+)
+
+
+def suggested_value(result: dict[str, Any], key: str) -> Any:
+    """Return the value a form pre-fills for a field."""
+    for marker in result["data_schema"].schema:
+        if marker == key:
+            return (marker.description or {}).get("suggested_value")
+    raise KeyError(key)
 
 
 @pytest.mark.parametrize(
@@ -70,7 +91,7 @@ def test_parse_pairing_link_invalid(link: str) -> None:
 async def test_user_flow(
     hass: HomeAssistant, mock_opencode: FakeOpenCode, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Test pairing with a server creates it with a default agent."""
+    """Test pairing with a server, then picking the first agent's model."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_USER}
     )
@@ -78,6 +99,13 @@ async def test_user_flow(
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_LINK: LINK}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "model"
+    assert suggested_value(result, CONF_MODEL) == SMALL_MODEL
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_MODEL: "github-copilot/claude-haiku-5.5"}
     )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -93,6 +121,64 @@ async def test_user_flow(
     assert len(subentries) == 1
     assert subentries[0].subentry_type == "conversation"
     assert subentries[0].data[CONF_AGENT] == "build"
+    assert subentries[0].data[CONF_MODEL] == "github-copilot/claude-haiku-5.5"
+
+
+async def test_user_flow_agent_default_model(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test clearing the model leaves it to the agent."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_LINK: LINK}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    subentry = next(iter(result["result"].subentries.values()))
+    assert CONF_MODEL not in subentry.data
+
+
+async def test_user_flow_no_models(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a server with no models skips the model step."""
+    mock_opencode.async_get_models.return_value = []
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_LINK: LINK}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.parametrize(
+    ("models", "expected"),
+    [
+        pytest.param(MODELS, SMALL_MODEL, id="cheapest_newest"),
+        pytest.param(
+            MODELS[:1] + MODELS[2:], "github-copilot/claude-haiku-5.5", id="cheapest"
+        ),
+        pytest.param(
+            [{**MODELS[1], "enabled": False}, MODELS[2]],
+            "github-copilot/gemini-4-neon",
+            id="disabled",
+        ),
+        pytest.param(
+            [{**MODELS[1], "capabilities": {"tools": False}}, MODELS[2]],
+            "github-copilot/gemini-4-neon",
+            id="no_tools",
+        ),
+        pytest.param(MODELS[3:], None, id="only_free"),
+        pytest.param([{"id": "x", "providerID": "y"}], None, id="no_details"),
+    ],
+)
+def test_suggest_small_model(models: list[dict[str, Any]], expected: str) -> None:
+    """Test the suggested model is the cheapest paid one that can use tools."""
+    assert suggest_small_model(models) == expected
 
 
 @pytest.mark.parametrize(
@@ -133,6 +219,8 @@ async def test_user_flow_errors(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_LINK: LINK}
     )
+    assert result["step_id"] == "model"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
@@ -186,6 +274,141 @@ async def test_reconfigure_flow(
     assert init_integration.title == "http://other.local:49374"
 
 
+async def test_hassio_flow(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode, freezer: FrozenDateTimeFactory
+) -> None:
+    """Test the OpenCode app is added with the token it paired."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HASSIO_DISCOVERY
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "hassio_confirm"
+    assert result["description_placeholders"] == {"app": "OpenCode"}
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "model"
+    assert suggested_value(result, CONF_MODEL) == SMALL_MODEL
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_MODEL: SMALL_MODEL}
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "OpenCode"
+    assert result["result"].unique_id == "1234"
+    assert result["data"] == {
+        CONF_URL: APP_URL,
+        CONF_TOKEN: "app-token",
+        CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+    }
+    mock_opencode.async_redeem.assert_not_awaited()
+    subentry = next(iter(result["result"].subentries.values()))
+    assert subentry.data[CONF_MODEL] == SMALL_MODEL
+
+
+async def test_hassio_flow_cannot_connect(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test the confirm step shows an app it can't reach yet, and recovers."""
+    mock_opencode.async_get_agents.side_effect = OpenCodeConnectionError
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HASSIO_DISCOVERY
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    mock_opencode.async_get_agents.side_effect = None
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "model"
+
+
+async def test_hassio_flow_pairing_expired(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a token the app no longer accepts asks for the app to restart."""
+    mock_opencode.async_get_agents.side_effect = OpenCodeAuthError
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HASSIO_DISCOVERY
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "app_pairing_expired"
+
+
+async def test_hassio_flow_already_configured(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test a loaded app keeps its own token, but follows a new address."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="1234",
+        data={
+            CONF_URL: "http://old-opencode:49374",
+            CONF_TOKEN: "token",
+            CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+        },
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HASSIO_DISCOVERY
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert entry.data[CONF_URL] == APP_URL
+    assert entry.data[CONF_TOKEN] == "token"
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.data[CONF_URL] == APP_URL
+
+
+async def test_hassio_flow_mends_entry(
+    hass: HomeAssistant, mock_opencode: FakeOpenCode
+) -> None:
+    """Test an app whose token was refused takes the newly paired one."""
+    mock_opencode.async_get_info.side_effect = OpenCodeAuthError
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="1234",
+        data={CONF_URL: APP_URL, CONF_TOKEN: "token"},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+
+    mock_opencode.async_get_info.side_effect = None
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_HASSIO}, data=HASSIO_DISCOVERY
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert entry.data[CONF_TOKEN] == "app-token"
+    assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_hassio_flow_added_by_link(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test an app already paired by hand from the same address isn't offered."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_HASSIO},
+        data=HassioServiceInfo(
+            config={CONF_HOST: "opencode.local", CONF_PORT: 49374, CONF_TOKEN: "t"},
+            name="OpenCode",
+            slug="opencode",
+            uuid="1234",
+        ),
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_add_conversation_subentry(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
@@ -200,6 +423,15 @@ async def test_add_conversation_subentry(
         for option in result["data_schema"].schema[CONF_AGENT].config["options"]
     ]
     assert agent_options == ["build", "plan"]
+    assert suggested_value(result, CONF_MODEL) == SMALL_MODEL
+    assert result["data_schema"].schema[CONF_VARIANT].config["options"] == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "custom",
+    ]
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
@@ -225,14 +457,57 @@ async def test_add_conversation_subentry(
     }
 
 
+async def test_add_conversation_subentry_unsupported_variant(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test a variant the picked model lacks is refused, keeping what was entered."""
+    result = await hass.config_entries.subentries.async_init(
+        (init_integration.entry_id, "conversation"),
+        context={"source": SOURCE_USER},
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Research",
+            CONF_AGENT: "plan",
+            CONF_MODEL: "github-copilot/claude-haiku-5.5",
+            CONF_VARIANT: "xhigh",
+            CONF_TIMEOUT: 120,
+        },
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_VARIANT: "unsupported_variant"}
+    assert suggested_value(result, CONF_MODEL) == "github-copilot/claude-haiku-5.5"
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            CONF_NAME: "Research",
+            CONF_AGENT: "plan",
+            CONF_MODEL: "github-copilot/gemini-4-neon",
+            CONF_VARIANT: "xhigh",
+            CONF_TIMEOUT: 120,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_VARIANT] == "xhigh"
+
+
 async def test_reconfigure_conversation_subentry(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
     """Test changing an agent's options."""
     subentry = next(iter(init_integration.subentries.values()))
+    hass.config_entries.async_update_subentry(
+        init_integration,
+        subentry,
+        data={**subentry.data, CONF_MODEL: "github-copilot/gemini-4-neon"},
+    )
+    await hass.async_block_till_done()
     result = await init_integration.start_subentry_reconfigure_flow(
         hass, subentry.subentry_id
     )
+    assert suggested_value(result, CONF_MODEL) == "github-copilot/gemini-4-neon"
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {CONF_AGENT: "plan", CONF_TIMEOUT: 30}
     )

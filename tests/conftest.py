@@ -30,8 +30,46 @@ MODELS = [
         "providerID": "github-copilot",
         "name": "Claude Haiku 5.5",
         "enabled": True,
+        "capabilities": {"tools": True},
+        "cost": [{"input": 0.1, "output": 0.5}],
+        "time": {"released": 1791331200000},
+        "variants": [{"id": "high"}, {"id": "max"}],
+    },
+    {
+        "id": "mai-code-2-flash",
+        "providerID": "github-copilot",
+        "name": "MAI Code 2 Flash",
+        "enabled": True,
+        "capabilities": {"tools": True},
+        "cost": [{"input": 0.1, "output": 0.5}],
+        "time": {"released": 1795392000000},
+    },
+    {
+        "id": "gemini-4-neon",
+        "providerID": "github-copilot",
+        "name": "Gemini 4 Neon",
+        "enabled": True,
+        "capabilities": {"tools": True},
+        "cost": [{"input": 3, "output": 15}],
+        "time": {"released": 1794960000000},
+        "variants": [
+            {"id": "xhigh"},
+            {"id": "low"},
+            {"id": "custom"},
+            {"id": "medium"},
+            {"id": "high"},
+        ],
+    },
+    {
+        "id": "hy4-flash-free",
+        "providerID": "opencode",
+        "name": "HY4 Flash Free",
+        "enabled": True,
+        "capabilities": {"tools": True},
+        "cost": [{"input": 0, "output": 0}],
     },
 ]
+SMALL_MODEL = "github-copilot/mai-code-2-flash"
 
 
 @pytest.fixture(autouse=True)

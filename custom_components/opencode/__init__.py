@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import CONF_TOKEN, CONF_URL, Platform
@@ -25,10 +26,12 @@ PLATFORMS = (Platform.CONVERSATION,)
 
 @dataclass(slots=True)
 class OpenCodeData:
-    """The client and server details for a config entry."""
+    """The client, and what the entry was set up with."""
 
     client: OpenCodeClient
     version: str
+    # Compared by the update listener, so a renewed token doesn't reload
+    data: dict[str, Any]
     subentries: dict[str, ConfigSubentry]
 
 
@@ -54,7 +57,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OpenCodeConfigEntry) -> 
         ) from err
 
     entry.runtime_data = OpenCodeData(
-        client=client, version=info["version"], subentries=dict(entry.subentries)
+        client=client,
+        version=info["version"],
+        data=dict(entry.data),
+        subentries=dict(entry.subentries),
     )
     await async_renew_token(hass, entry)
 
@@ -75,8 +81,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: OpenCodeConfigEntry) ->
 
 
 async def async_update_options(hass: HomeAssistant, entry: OpenCodeConfigEntry) -> None:
-    """Reload the entry when its subentries change, not when its token renews."""
-    if dict(entry.subentries) != entry.runtime_data.subentries:
+    """Reload the entry when it changes, but not when its token renews."""
+    if (
+        dict(entry.data) != entry.runtime_data.data
+        or dict(entry.subentries) != entry.runtime_data.subentries
+    ):
         await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -93,6 +102,5 @@ async def async_renew_token(hass: HomeAssistant, entry: OpenCodeConfigEntry) -> 
     except OpenCodeError as err:
         LOGGER.warning("Couldn't renew the OpenCode token, trying again later: %s", err)
         return
-    hass.config_entries.async_update_entry(
-        entry, data={**entry.data, CONF_TOKEN: token, CONF_RENEWED_AT: now}
-    )
+    entry.runtime_data.data = {**entry.data, CONF_TOKEN: token, CONF_RENEWED_AT: now}
+    hass.config_entries.async_update_entry(entry, data=entry.runtime_data.data)

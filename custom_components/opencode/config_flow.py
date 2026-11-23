@@ -7,12 +7,15 @@ from homeassistant.config_entries import (
     ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryData,
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
 from homeassistant.const import (
+    CONF_HOST,
     CONF_MODEL,
     CONF_NAME,
+    CONF_PORT,
     CONF_PROMPT,
     CONF_TIMEOUT,
     CONF_TOKEN,
@@ -34,6 +37,7 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 from homeassistant.util import dt as dt_util
 import probatio
 
@@ -74,10 +78,102 @@ DEFAULT_CONVERSATION_OPTIONS = {
 }
 
 
+def _input_price(model: dict[str, Any]) -> float:
+    """Return a model's price per million input tokens, 0 when free or unknown."""
+    cost = model.get("cost")
+    if isinstance(cost, list):
+        cost = cost[0] if cost else None
+    if not isinstance(cost, dict):
+        return 0
+    return cost.get("input") or 0
+
+
+def suggest_small_model(models: list[dict[str, Any]]) -> str | None:
+    """Pick the cheapest paid model that can use tools, the newest on a tie.
+
+    Free models are left out, as they're usually trials that log prompts.
+    """
+    candidates = [
+        model
+        for model in models
+        if model.get("enabled", True)
+        and model.get("capabilities", {}).get("tools")
+        and _input_price(model) > 0
+    ]
+    if not candidates:
+        return None
+    model = min(
+        candidates,
+        key=lambda model: (
+            _input_price(model),
+            -model.get("time", {}).get("released", 0),
+        ),
+    )
+    return f"{model['providerID']}/{model['id']}"
+
+
+EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+
+def _variants(models: list[dict[str, Any]]) -> list[str]:
+    """Return the variants the models offer, lowest effort first."""
+    variants = {
+        variant["id"]
+        for model in models
+        if model.get("enabled", True)
+        for variant in model.get("variants") or []
+    }
+    return sorted(
+        variants,
+        key=lambda variant: (
+            EFFORT_ORDER.index(variant)
+            if variant in EFFORT_ORDER
+            else len(EFFORT_ORDER),
+            variant,
+        ),
+    )
+
+
+def model_selector(models: list[dict[str, Any]]) -> SelectSelector:
+    """Return a dropdown of the server's models."""
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=sorted(
+                (
+                    SelectOptionDict(
+                        value=f"{model['providerID']}/{model['id']}",
+                        label=f"{model['name']} ({model['providerID']})",
+                    )
+                    for model in models
+                    if model.get("enabled", True)
+                ),
+                key=lambda option: option["label"],
+            ),
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
 class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for OpenCode."""
 
     VERSION = 1
+
+    _discovery: HassioServiceInfo
+    _data: dict[str, Any]
+    _title: str
+    _models: list[dict[str, Any]]
+
+    def _async_update_and_finish(
+        self, entry: OpenCodeConfigEntry, reason: str, **changes: Any
+    ) -> ConfigFlowResult:
+        """Update an entry, leaving the reload to its update listener if loaded."""
+        if entry.update_listeners:
+            self.hass.config_entries.async_update_entry(entry, **changes)
+            return self.async_abort(reason=reason)
+        return self.async_update_reload_and_abort(
+            entry, reason=reason, reload_even_if_entry_is_unchanged=False, **changes
+        )
 
     async def _async_pair(
         self, link: str, current_url: str | None = None
@@ -94,6 +190,7 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
             token = await client.async_redeem(code)
             client.set_token(token)
             await client.async_get_agents()
+            self._models = await client.async_get_models()
         except OpenCodeAuthError:
             return {}, {CONF_LINK: "expired_link"}
         except OpenCodeError:
@@ -116,21 +213,112 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             data, errors = await self._async_pair(user_input[CONF_LINK])
             if not errors:
-                return self.async_create_entry(
-                    title=data[CONF_URL],
-                    data=data,
-                    subentries=[
-                        {
-                            "subentry_type": "conversation",
-                            "data": DEFAULT_CONVERSATION_OPTIONS,
-                            "title": DEFAULT_CONVERSATION_NAME,
-                            "unique_id": None,
-                        }
-                    ],
-                )
+                self._data = data
+                self._title = data[CONF_URL]
+                return await self.async_step_model()
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_LINK_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_model(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the model the first agent uses."""
+        if user_input is not None or not self._models:
+            return self.async_create_entry(
+                title=self._title,
+                data=self._data,
+                subentries=[
+                    ConfigSubentryData(
+                        subentry_type="conversation",
+                        data={**DEFAULT_CONVERSATION_OPTIONS, **(user_input or {})},
+                        title=DEFAULT_CONVERSATION_NAME,
+                        unique_id=None,
+                    )
+                ],
+            )
+
+        return self.async_show_form(
+            step_id="model",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Optional(
+                        CONF_MODEL,
+                        description={
+                            "suggested_value": suggest_small_model(self._models)
+                        },
+                    ): model_selector(self._models),
+                }
+            ),
+        )
+
+    @override
+    async def async_step_hassio(
+        self, discovery_info: HassioServiceInfo
+    ) -> ConfigFlowResult:
+        """Handle the OpenCode app, which pairs Home Assistant for us."""
+        await self.async_set_unique_id(discovery_info.uuid)
+        url = f"http://{discovery_info.config[CONF_HOST]}:{discovery_info.config[CONF_PORT]}"
+        if entry := self.hass.config_entries.async_entry_for_domain_unique_id(
+            DOMAIN, discovery_info.uuid
+        ):
+            data = {**entry.data, CONF_URL: url}
+            if entry.state is not ConfigEntryState.LOADED:
+                # The app pairs on every start, so its token mends an entry
+                # the server stopped accepting
+                data |= {
+                    CONF_TOKEN: discovery_info.config[CONF_TOKEN],
+                    CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+                }
+            return self._async_update_and_finish(entry, "already_configured", data=data)
+        self._async_abort_entries_match({CONF_URL: url})
+
+        self._discovery = discovery_info
+        self.context.update(
+            {
+                "title_placeholders": {"name": discovery_info.name},
+                "configuration_url": (
+                    f"homeassistant://config/app/{discovery_info.slug}/info"
+                ),
+            }
+        )
+        return await self.async_step_hassio_confirm()
+
+    async def async_step_hassio_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add the OpenCode app."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            config = self._discovery.config
+            url = f"http://{config[CONF_HOST]}:{config[CONF_PORT]}"
+            client = OpenCodeClient(
+                async_get_clientsession(self.hass), url, config[CONF_TOKEN]
+            )
+            try:
+                await client.async_get_agents()
+                self._models = await client.async_get_models()
+            except OpenCodeAuthError:
+                return self.async_abort(reason="app_pairing_expired")
+            except OpenCodeError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+            else:
+                self._data = {
+                    CONF_URL: url,
+                    CONF_TOKEN: config[CONF_TOKEN],
+                    CONF_RENEWED_AT: dt_util.utcnow().timestamp(),
+                }
+                self._title = self._discovery.name
+                return await self.async_step_model()
+
+        return self.async_show_form(
+            step_id="hassio_confirm",
+            description_placeholders={"app": self._discovery.name},
+            errors=errors,
         )
 
     async def async_step_reauth(
@@ -150,8 +338,8 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input[CONF_LINK], entry.data[CONF_URL]
             )
             if not errors:
-                return self.async_update_reload_and_abort(
-                    entry, title=data[CONF_URL], data=data
+                return self._async_update_and_finish(
+                    entry, "reauth_successful", title=data[CONF_URL], data=data
                 )
 
         return self.async_show_form(
@@ -172,8 +360,8 @@ class OpenCodeConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input[CONF_LINK], entry.data[CONF_URL]
             )
             if not errors:
-                return self.async_update_reload_and_abort(
-                    entry, title=data[CONF_URL], data=data
+                return self._async_update_and_finish(
+                    entry, "reconfigure_successful", title=data[CONF_URL], data=data
                 )
 
         return self.async_show_form(
@@ -205,14 +393,6 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
             return self.async_abort(reason="entry_not_loaded")
 
         is_new = self.source == "user"
-        if user_input is not None:
-            if is_new:
-                name = user_input.pop(CONF_NAME)
-                return self.async_create_entry(title=name, data=user_input)
-            return self.async_update_and_abort(
-                entry, self._get_reconfigure_subentry(), data=user_input
-            )
-
         client = entry.runtime_data.client
         try:
             agents = await client.async_get_agents()
@@ -220,17 +400,47 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
         except OpenCodeError:
             return self.async_abort(reason="cannot_connect")
 
-        options = (
-            DEFAULT_CONVERSATION_OPTIONS
-            if is_new
-            else self._get_reconfigure_subentry().data
-        )
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if (variant := user_input.get(CONF_VARIANT)) and (
+                model := next(
+                    (
+                        model
+                        for model in models
+                        if f"{model['providerID']}/{model['id']}"
+                        == user_input.get(CONF_MODEL)
+                    ),
+                    None,
+                )
+            ):
+                if variant not in _variants([model]):
+                    errors[CONF_VARIANT] = "unsupported_variant"
+            if not errors:
+                if is_new:
+                    name = user_input.pop(CONF_NAME)
+                    return self.async_create_entry(title=name, data=user_input)
+                return self.async_update_and_abort(
+                    entry, self._get_reconfigure_subentry(), data=user_input
+                )
+
+        if user_input is not None:
+            options: Mapping[str, Any] = user_input
+            model_ref = user_input.get(CONF_MODEL)
+        elif is_new:
+            options = DEFAULT_CONVERSATION_OPTIONS
+            model_ref = suggest_small_model(models)
+        else:
+            options = self._get_reconfigure_subentry().data
+            model_ref = options.get(CONF_MODEL)
         schema: dict[Any, Any] = {}
         if is_new:
             # pylint: disable-next=home-assistant-config-flow-name-field
-            schema[probatio.Required(CONF_NAME, default=DEFAULT_CONVERSATION_NAME)] = (
-                str
-            )
+            schema[
+                probatio.Required(
+                    CONF_NAME,
+                    default=options.get(CONF_NAME, DEFAULT_CONVERSATION_NAME),
+                )
+            ] = str
         schema.update(
             {
                 probatio.Required(
@@ -249,29 +459,16 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
                     )
                 ),
                 probatio.Optional(
-                    CONF_MODEL,
-                    description={"suggested_value": options.get(CONF_MODEL)},
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=sorted(
-                            (
-                                SelectOptionDict(
-                                    value=f"{model['providerID']}/{model['id']}",
-                                    label=f"{model['name']} ({model['providerID']})",
-                                )
-                                for model in models
-                                if model.get("enabled", True)
-                            ),
-                            key=lambda option: option["label"],
-                        ),
-                        mode=SelectSelectorMode.DROPDOWN,
-                        custom_value=True,
-                    )
-                ),
+                    CONF_MODEL, description={"suggested_value": model_ref}
+                ): model_selector(models),
                 probatio.Optional(
                     CONF_VARIANT,
                     description={"suggested_value": options.get(CONF_VARIANT)},
-                ): TextSelector(),
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=_variants(models), mode=SelectSelectorMode.DROPDOWN
+                    )
+                ),
                 probatio.Optional(
                     CONF_DIRECTORY,
                     description={"suggested_value": options.get(CONF_DIRECTORY)},
@@ -295,7 +492,7 @@ class OpenCodeSubentryFlowHandler(ConfigSubentryFlow):
             }
         )
         return self.async_show_form(
-            step_id="set_options", data_schema=probatio.Schema(schema)
+            step_id="set_options", data_schema=probatio.Schema(schema), errors=errors
         )
 
     async_step_user = async_step_set_options

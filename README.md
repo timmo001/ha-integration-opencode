@@ -35,10 +35,13 @@ Since this integration is not yet in the default HACS store, you need to add it 
 
 ## Setup
 
+With the [OpenCode app](https://github.com/timmo001/app-opencode) on Home Assistant OS, Home Assistant finds it by itself: **Settings** > **Devices & services** shows OpenCode as discovered. Add it, and the app pairs Home Assistant for you, so skip to step 3. For any other OpenCode server:
+
 1. Go to **Settings** > **Devices & services** > **Add integration** and pick **OpenCode**
 2. On the server, run `opencode pair`, or press **Pair a device** in the OpenCode app's sidebar, and paste one of its links, such as `http://192.168.1.10:49374/auth/connect/…`. Links work once and expire in 5 minutes. Home Assistant keeps the token the link gives it and renews it every week, so there's no password to enter
-3. An agent called "OpenCode conversation" is added with the server's `build` agent and default model. Open it to pick another agent, model or variant, or use **Add conversation agent** for more
-4. Go to **Settings** > **Voice assistants** and pick the agent as an assistant's conversation agent
+3. Pick the model that answers. A small one is picked for you: the cheapest paid model on the server that can use tools, since quick answers matter more than depth for most spoken questions. Clear it to use the agent's own default
+4. An agent called "OpenCode conversation" is added with the server's `build` agent and that model. Use **Reconfigure** on it to pick another agent, model or variant, or **Add conversation agent** for more
+5. Go to **Settings** > **Voice assistants** and pick the agent as an assistant's conversation agent
 
 Add a second server, such as a more powerful machine, as another entry, and use its agents for the assistants that need them.
 
