@@ -7,6 +7,8 @@ A custom Home Assistant integration that lets your [OpenCode](https://opencode.a
 
 It needs an OpenCode 2 server Home Assistant can reach, such as the OpenCode app or `opencode serve` on another machine.
 
+This is a community project. It isn't made or endorsed by Anomaly, the makers of OpenCode, or by Home Assistant.
+
 <!-- ha-marketplace:exclude-start -->
 
 ## Installation
