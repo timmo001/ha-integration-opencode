@@ -1,6 +1,6 @@
 [project]
 name = "ha-integration-opencode"
-version = "0.2.1"
+version = "0.2.2"
 description = "Use OpenCode agents as Home Assistant conversation agents"
 readme = "README.md"
 license = "Apache-2.0"
