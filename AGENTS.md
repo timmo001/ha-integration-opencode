@@ -41,4 +41,4 @@ A Home Assistant custom integration (`custom_components/opencode`) that makes Op
 - `tooling.yml` records the OpenCode and Core releases the integration was last reviewed against. Upkeep's drift job hands a newer one to an agent with the review note there; set `reviewed` once it's reviewed.
 - CI runs the mise `lint` and `test` tasks through the shared workflows in `timmo001/workflows`, pinned to a tag, plus HACS and hassfest validation.
 - A release is a published GitHub release. Bump `version` in `manifest.json` and `pyproject.toml` together.
-- The README's install steps are what HACS users follow, so keep them accurate when install changes.
+- The README's install steps are what Marketplace users follow, so keep them accurate when install changes.

@@ -20,22 +20,9 @@ This is a community project. It isn't made or endorsed by Anomaly, the makers of
 
 [![Open your Home Assistant instance and open a repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=timmo001&repository=ha-integration-opencode&category=integration)
 
-1. Open the repository in the Marketplace with the button above
+1. Open the repository in the Marketplace with the button above, or search for **OpenCode** in the Marketplace
 2. Select **Install**
 3. Restart Home Assistant
-
-### HACS
-
-Since this integration is not yet in the default HACS store, you need to add it as a custom repository:
-
-1. Open HACS in your Home Assistant instance
-2. Click the **3 dots** in the top right corner
-3. Select **"Custom repositories"**
-4. Add repository URL: `https://github.com/timmo001/ha-integration-opencode`
-5. Select category: **Integration**
-6. Click **"ADD"**
-7. Find "OpenCode" in the list and click **Download**
-8. Restart Home Assistant
 
 ### Manual
 
