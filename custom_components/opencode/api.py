@@ -30,7 +30,7 @@ class OpenCodeNotFoundError(OpenCodeError):
 
 
 class OpenCodeConflictError(OpenCodeError):
-    """The session can't take the request, such as when it's archived."""
+    """The session can't take the request."""
 
 
 class OpenCodeTurnError(OpenCodeError):
